@@ -1,0 +1,26 @@
+# Basic SSH Configuration
+Port 22
+Protocol 2
+
+# Security Settings
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+PermitEmptyPasswords no
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitUserEnvironment no
+
+# Connection Settings
+ClientAliveInterval 300
+ClientAliveCountMax 2
+MaxAuthTries 3
+MaxSessions 3
+
+# Logging
+SyslogFacility AUTH
+LogLevel INFO
+
+# Authentication
+AuthenticationMethods publickey 
