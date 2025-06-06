@@ -1,0 +1,6 @@
+pre-commit:
+  commands:
+    ansible-vault-reencrypt:
+      glob: "vars/secrets.yml"
+      run: make vault
+      stage_fixed: true
