@@ -1,0 +1,37 @@
+---
+- name: Create the deploy group
+  ansible.builtin.group:
+    name: "{{ deploy_user_name }}"
+    state: present
+
+- name: Create the deploy user
+  ansible.builtin.user:
+    name: "{{ deploy_user_name }}"
+    comment: "{{ deploy_user_comment }}"
+    shell: "{{ deploy_user_shell }}"
+    group: "{{ deploy_user_name }}"
+    create_home: true
+    state: present
+
+- name: Set up authorized keys for the deploy user
+  ansible.posix.authorized_key:
+    user: "{{ deploy_user_name }}"
+    key: "{{ deploy_user_ssh_public_key }}"
+    state: present
+    exclusive: true
+
+- name: Grant deploy user passwordless sudo for specific commands (if needed)
+  ansible.builtin.lineinfile:
+    path: "/etc/sudoers.d/{{ deploy_user_name }}_permissions"
+    line: "{{ deploy_user_name }} ALL=(ALL) NOPASSWD: /usr/bin/systemctl daemon-reload"
+    create: true
+    validate: "visudo -cf %s"
+    owner: root
+    group: root
+    mode: "0440"
+
+- name: Enable lingering for the deploy user (for systemd --user services)
+  ansible.builtin.command: "loginctl enable-linger {{ deploy_user_name }}"
+  changed_when: false # Command doesn't give good changed status
+  failed_when: false # It might already be enabled
+  notify: Reload systemd daemon for user

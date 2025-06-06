@@ -1,0 +1,9 @@
+---
+server_hostname: "homeserver"
+timezone: "Africa/Tunis"
+
+# Deploy user
+deploy_user_name: "deploy"
+deploy_user_comment: "Deploy User"
+deploy_user_shell: "/bin/bash"
+deploy_user_ssh_public_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"

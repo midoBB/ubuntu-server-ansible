@@ -1,0 +1,9 @@
+---
+- name: Reload systemd daemon for user
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  become: true
+  become_user: "{{ deploy_user_name }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/$(id -u {{ deploy_user_name }})"

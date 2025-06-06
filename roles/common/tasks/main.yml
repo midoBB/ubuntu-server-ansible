@@ -1,49 +1,29 @@
 ---
-- name: Update apt cache
-  apt:
-    update_cache: yes
-    cache_valid_time: 3600
-
-- name: Install essential packages
-  apt:
-    name:
-      - vim
-      - curl
-      - wget
-      - git
-      - htop
-      - ufw
-      - unattended-upgrades
-    state: present
-
 - name: Set timezone
-  timezone:
+  community.general.timezone:
     name: "{{ timezone }}"
 
-- name: Configure UFW
-  ufw:
-    rule: allow
-    port: ssh
-    proto: tcp
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ server_hostname }}"
 
-- name: Enable UFW
-  ufw:
-    state: enabled
-    policy: deny
-
-- name: Configure automatic security updates
-  template:
-    src: 20auto-upgrades.j2
-    dest: /etc/apt/apt.conf.d/20auto-upgrades
+- name: Add hostname to /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127\\.0\\.1\\.1.*"
+    line: "127.0.1.1 {{ server_hostname }}"
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
 
-- name: Configure SSH
-  template:
-    src: sshd_config.j2
-    dest: /etc/ssh/sshd_config
-    owner: root
-    group: root
-    mode: '0644'
-  notify: restart ssh 
+- name: Install common packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - wget
+      - unzip
+      - htop
+      - vim
+      - logrotate
+      - acl
+    state: present
