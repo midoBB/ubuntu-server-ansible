@@ -1,0 +1,52 @@
+# {{ ansible_managed }}
+# Supports multiple domains and reverse proxy targets
+{
+    admin off
+    local_certs
+}
+(security_headers) {
+    header {
+        # Enable HSTS
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Prevents clickjacking
+        X-Frame-Options "SAMEORIGIN"
+        # Prevents content type sniffing
+        X-Content-Type-Options "nosniff"
+        # Controls the information that a browser includes with navigations
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Disables caching of sensitive information
+        Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}
+{% for site in caddy_server_sites %}
+{{ site.domain }} {
+
+    # Add security headers
+    import security_headers
+
+    # Enable compression
+    encode zstd gzip
+
+    # Redirect HTTP to HTTPS
+    @http {
+        protocol http
+    }
+    redir @http https://{host}{uri}
+
+    # Automatic HTTPS
+    {% if caddy_server_email %}
+    tls {{ caddy_server_email }}
+    {% else %}
+    tls internal
+    {% endif %}
+
+    # Logging per site
+    log {
+        output file {{ caddy_server_log_dir }}/{{ site.title | default(site.domain) }}.log
+        format json
+    }
+
+    # Reverse proxy
+    reverse_proxy {{ site.proxy_target }}
+}
+{% endfor %}

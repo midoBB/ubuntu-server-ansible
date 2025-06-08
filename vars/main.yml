@@ -20,3 +20,5 @@ ufw_tcp_ports: []
 ufw_udp_ports: []
 # List of IP addresses/networks to allow SSH from (empty means allow from any)
 ufw_ssh_allowed_ips: []
+# Caddy
+caddy_server_log_dir: "/var/log/caddy"
