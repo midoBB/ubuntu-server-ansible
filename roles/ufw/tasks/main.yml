@@ -1,0 +1,64 @@
+---
+- name: Install UFW package
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+  become: true
+
+- name: Set default UFW policies
+  ansible.builtin.command: ufw default {{ item.policy }} {{ item.direction }}
+  args:
+    creates: /etc/ufw/ufw.conf
+  loop:
+    - { policy: "deny", direction: "incoming" }
+    - { policy: "allow", direction: "outgoing" }
+  register: ufw_defaults
+  changed_when: false # This is idempotent, but we need to run it always
+  become: true
+
+- name: Allow SSH port
+  community.general.ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+    src: "{{ item | default(omit) }}"
+  loop: "{{ ufw_ssh_allowed_ips | length | ternary(ufw_ssh_allowed_ips, [omit]) }}"
+  loop_control:
+    loop_var: item
+  become: true
+
+- name: Allow HTTP and HTTPS
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - 80
+    - 443
+  become: true
+
+- name: Allow additional TCP ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ ufw_tcp_ports }}"
+  become: true
+  when: ufw_tcp_ports | length > 0
+
+- name: Allow UDP ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: udp
+  loop: "{{ ufw_udp_ports }}"
+  become: true
+  when: ufw_udp_ports | length > 0
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+    policy: deny
+  become: true
+  notify: Reload ufw

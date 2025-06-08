@@ -11,3 +11,12 @@ deploy_user_ssh_public_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
 # SSH
 ssh_port: 2222
 ssh_config_path: /etc/ssh/sshd_config
+
+# Firewall
+
+# List of additional TCP ports to allow (besides 80, 443, and ssh_port)
+ufw_tcp_ports: []
+# List of UDP ports to allow
+ufw_udp_ports: []
+# List of IP addresses/networks to allow SSH from (empty means allow from any)
+ufw_ssh_allowed_ips: []
