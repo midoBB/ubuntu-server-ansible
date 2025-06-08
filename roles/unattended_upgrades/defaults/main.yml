@@ -1,0 +1,28 @@
+---
+# Default variables for unattended_upgrades role
+
+# Enable automatic updates (set to false to disable)
+enable_auto_updates: true
+
+# Origins to allow updates from
+unattended_allowed_origins:
+  - "${distro_id}:${distro_codename}"
+  - "${distro_id}:${distro_codename}-security"
+  - "${distro_id}:${distro_codename}-backports"
+
+# Packages to blacklist from automatic updates
+unattended_blacklist:
+  - "libc*"
+  - "libstdc++*"
+
+# Automatic upgrade settings
+auto_reboot: false
+auto_reboot_time: "02:00"
+
+# Clean up unused dependencies
+auto_remove: true
+auto_remove_days: 7
+
+# Send email notifications
+mail_to: ""
+mail_on_error: true

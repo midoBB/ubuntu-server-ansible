@@ -11,3 +11,4 @@
     - deploy
     - ssh
     - ufw
+    - unattended_upgrades

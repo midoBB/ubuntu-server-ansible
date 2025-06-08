@@ -1,0 +1,33 @@
+---
+# Tasks for unattended_upgrades role
+
+- name: Install unattended-upgrades package
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+    update_cache: true
+
+- name: Configure unattended-upgrades
+  ansible.builtin.template:
+    src: 50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart unattended-upgrades
+
+- name: Configure auto-updates
+  ansible.builtin.template:
+    src: 20auto-upgrades.j2
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: '0644'
+  when: enable_auto_updates | bool
+  notify: reload unattended-upgrades
+
+- name: Ensure unattended-upgrades service is enabled and running
+  ansible.builtin.service:
+    name: unattended-upgrades
+    enabled: true
+    state: started

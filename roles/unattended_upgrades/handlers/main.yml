@@ -1,0 +1,15 @@
+---
+# Handlers for unattended_upgrades role
+
+- name: Restart unattended-upgrades
+  listen: restart unattended-upgrades
+  ansible.builtin.service:
+    name: unattended-upgrades
+    state: restarted
+
+- name: Reload unattended-upgrades
+  listen: reload unattended-upgrades
+  ansible.builtin.systemd:
+    name: unattended-upgrades
+    state: reloaded
+  failed_when: false
