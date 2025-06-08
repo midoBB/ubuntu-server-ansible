@@ -7,3 +7,7 @@ deploy_user_name: "deploy"
 deploy_user_comment: "Deploy User"
 deploy_user_shell: "/bin/bash"
 deploy_user_ssh_public_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+# SSH
+ssh_port: 2222
+ssh_config_path: /etc/ssh/sshd_config

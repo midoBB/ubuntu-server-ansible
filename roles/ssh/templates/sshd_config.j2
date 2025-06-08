@@ -1,0 +1,65 @@
+# {{ ansible_managed }}
+# Hardened SSH configuration
+
+# Basic settings
+Port {{ ssh_port }}
+Protocol 2
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+SyslogFacility AUTH
+LogLevel VERBOSE
+
+# Authentication
+PermitRootLogin no
+MaxAuthTries 3
+LoginGraceTime 20
+StrictModes yes
+MaxStartups 10:30:60
+
+# Encryption and key exchange
+KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com
+
+# Authentication methods
+PasswordAuthentication no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+KerberosAuthentication no
+GSSAPIAuthentication no
+UsePAM no
+
+# X11 and forwarding
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitTunnel no
+
+# Environment and user settings
+PermitUserEnvironment no
+Compression no
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+# Restrict users if specified
+{% if ssh_allowed_users %}
+AllowUsers {% for user in ssh_allowed_users %}{{ user }} {% endfor %}
+{% endif %}
+
+# Additional hardening
+UsePrivilegeSeparation sandbox
+IgnoreRhosts yes
+HostbasedAuthentication no
+PrintMotd no
+PrintLastLog yes
+TCPKeepAlive no
+MaxSessions 4
+
+# Allow client to pass locale environment variables
+AcceptEnv LANG LC_*
+
+# Allow client to pass timezone environment variable
+AcceptEnv TZ
+
+# Disable DNS lookups to prevent client connection delays
+UseDNS no
