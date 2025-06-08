@@ -1,0 +1,76 @@
+---
+- name: Install Podman and dependencies
+  ansible.builtin.apt:
+    name: "{{ podman_packages }}"
+    state: present
+    update_cache: true
+
+- name: Ensure subuid and subgid are configured for rootless Podman
+  ansible.builtin.lineinfile:
+    path: "/etc/subuid"
+    regexp: "^{{ deploy_user_name }}:"
+    line: "{{ deploy_user_name }}:100000:65536"
+    create: true
+    state: present
+    mode: "0644"
+  notify: restart podman user socket
+
+- name: Ensure subgid is configured for rootless Podman
+  ansible.builtin.lineinfile:
+    path: "/etc/subgid"
+    regexp: "^{{ deploy_user_name }}:"
+    line: "{{ deploy_user_name }}:100000:65536"
+    create: true
+    state: present
+    mode: "0644"
+  notify: restart podman user socket
+
+- name: Get UID of deploy user on target
+  ansible.builtin.command: "id -u {{ deploy_user_name }}"
+  register: deploy_user_uid
+  changed_when: false
+
+- name: Ensure Podman is configured to use rootless mode
+  ansible.builtin.command:
+    cmd: "podman system migrate"
+  become: true
+  become_user: "{{ deploy_user_name }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ deploy_user_uid.stdout }}"
+  changed_when: false
+  failed_when: false
+
+- name: Initialize Podman storage for rootless user
+  ansible.builtin.command: "podman info"
+  become: true
+  become_user: "{{ deploy_user_name }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ deploy_user_uid.stdout }}"
+  changed_when: false
+  failed_when: false
+
+- name: Set Podman search registries
+  ansible.builtin.copy:
+    src: registries.conf
+    dest: /etc/containers/registries.conf
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: Create nodocker file to emulate docker without podman warnings
+  ansible.builtin.file:
+    path: /etc/containers/nodocker
+    state: touch
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: Enable and start podman.socket for rootless user
+  ansible.builtin.systemd:
+    name: podman.socket
+    scope: user
+    enabled: true
+    state: started
+  become: true
+  become_user: "{{ deploy_user_name }}"
+  notify: enable podman user socket

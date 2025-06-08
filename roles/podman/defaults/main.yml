@@ -1,0 +1,18 @@
+---
+# Defaults for podman role
+podman_packages:
+  - podman
+  - passt
+  - slirp4netns
+  - fuse-overlayfs
+  - uidmap
+  - dbus-user-session
+  - containernetworking-plugins
+  - containers-storage
+  - podman-docker
+  - podman-compose
+
+podman_group: podman
+podman_systemd_units:
+  - podman.socket
+  - podman.service
