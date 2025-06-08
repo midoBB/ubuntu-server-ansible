@@ -12,3 +12,4 @@
     - ssh
     - ufw
     - unattended_upgrades
+    - ubuntu_pro

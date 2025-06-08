@@ -1,0 +1,43 @@
+---
+- name: Include tasks for present or attached ubuntu_pro_state
+  block:
+    - name: Validate Ubuntu LTS version
+      block:
+        - name: Gather LSB Facts
+          ansible.builtin.setup:
+            filter: lsb
+        - name: Assert that Host Operating System is Ubuntu
+          ansible.builtin.assert:
+            that:
+              - ansible_facts.lsb.id == 'Ubuntu'
+            fail_msg: "Host Operating System is NOT Ubuntu"
+            success_msg: "Host Operating System is Ubuntu"
+        - name: Assert that Host Operating System is an Ubuntu LSB Release
+          ansible.builtin.assert:
+            that:
+              - ansible_facts.lsb.release in _ubuntu_pro_lts_releases
+            fail_msg: "Host Operating System is NOT an Ubuntu LSB Release"
+            success_msg: "Host Operating System is an Ubuntu LSB Release"
+
+    - name: Install 'ubuntu-advantage-tools' package
+      ansible.builtin.apt:
+        name: ubuntu-advantage-tools
+        state: present
+
+    - name: Register this host on Ubuntu Pro
+      ansible.builtin.command: "pro attach {{ ubuntu_pro_token }}"
+      register: _reg_pro_attach
+      changed_when: _reg_pro_attach.rc == 0
+      failed_when:
+        - _reg_pro_attach.rc != 0
+        - ('is already registered' not in _reg_pro_attach.stdout_lines[1] and 'is not available for' not in _reg_pro_attach.stdout_lines[1])
+
+    - name: Enable Ubuntu Pro services
+      ansible.builtin.command: "pro enable {{ item }}"
+      register: _reg_pro_enable
+      when: item in _ubuntu_pro_services
+      loop: "{{ _ubuntu_pro_services }}"
+      changed_when: _reg_pro_enable.rc == 0
+      failed_when:
+        - _reg_pro_enable.rc != 0
+        - ('is already enabled' not in _reg_pro_enable.stdout_lines[1] and 'is not available for' not in _reg_pro_enable.stdout_lines[1])
