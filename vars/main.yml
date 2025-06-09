@@ -22,3 +22,15 @@ ufw_udp_ports: []
 ufw_ssh_allowed_ips: []
 # Caddy
 caddy_server_log_dir: "/var/log/caddy"
+
+# CrowdSec
+crowdsec_collections:
+  - crowdsecurity/sshd
+  - crowdsecurity/caddy
+  - crowdsecurity/linux
+  - crowdsecurity/base-http-scenarios
+  - crowdsecurity/http-cve
+  - crowdsecurity/http-dos
+  - crowdsecurity/iptables
+  - crowdsecurity/pgsql
+  - crowdsecurity/whitelist-good-actors

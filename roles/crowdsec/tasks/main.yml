@@ -1,0 +1,102 @@
+---
+- name: Create CrowdSec group
+  ansible.builtin.group:
+    name: crowdsec
+    state: present
+    system: true
+
+- name: Create CrowdSec user
+  ansible.builtin.user:
+    name: crowdsec
+    group: crowdsec
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+    state: present
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+  changed_when: false
+
+- name: Install prerequisite packages
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - gnupg
+      - curl
+      - iptables
+      - iptables-persistent
+    state: present
+  become: true
+
+- name: Add CrowdSec APT GPG key
+  ansible.builtin.get_url:
+    url: https://packagecloud.io/crowdsec/crowdsec/gpgkey
+    dest: /etc/apt/trusted.gpg.d/crowdsec_crowdsec-archive-keyring.asc
+    mode: "0644"
+  become: true
+  notify: Reload crowdsec
+
+- name: Add CrowdSec repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/trusted.gpg.d/crowdsec_crowdsec-archive-keyring.asc] https://packagecloud.io/crowdsec/crowdsec/ubuntu/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: crowdsec
+  become: true
+  notify: Reload crowdsec
+
+- name: Install CrowdSec package
+  ansible.builtin.apt:
+    name: crowdsec
+    state: present
+  become: true
+
+- name: Enroll in CrowdSec Console
+  ansible.builtin.command: "cscli console enroll {{ crowdsec_enrollment_key }}"
+  become: true
+  when: crowdsec_enrollment_key is defined and crowdsec_enrollment_key != ""
+  notify: Reload crowdsec
+
+- name: Install required CrowdSec collections
+  ansible.builtin.command: "cscli collections install {{ item }}"
+  loop: "{{ crowdsec_collections }}"
+  become: true
+  changed_when: "'was already installed' not in result.stdout"
+  notify: Reload crowdsec
+  loop_control:
+    label: "{{ item }}"
+  register: result
+
+- name: Install CrowdSec iptables bouncer
+  ansible.builtin.apt:
+    name: crowdsec-firewall-bouncer-iptables
+    state: present
+  become: true
+  notify: Reload crowdsec
+
+- name: Start and enable firewall bouncer
+  systemd:
+    name: crowdsec-firewall-bouncer
+    state: started
+    enabled: true
+
+- name: Change ownership of Crowdsec configs and data
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: crowdsec
+    group: crowdsec
+    recurse: true
+    state: directory
+    mode: "0750"
+  loop:
+    - /etc/crowdsec
+    - /var/lib/crowdsec
+    - /var/log/crowdsec
+    - /var/run/crowdsec
+    - /usr/lib/crowdsec
+  notify:
+    - Reload crowdsec
+    - Restart crowdsec
+    - Restart crowdsec-firewall-bouncer-iptables
