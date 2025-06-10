@@ -34,3 +34,7 @@ crowdsec_collections:
   - crowdsecurity/iptables
   - crowdsecurity/pgsql
   - crowdsecurity/whitelist-good-actors
+
+# Tailscale
+tailscale_accept_routes: true
+tailscale_enable_ssh: false

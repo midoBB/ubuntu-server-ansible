@@ -1,0 +1,71 @@
+---
+- name: Install Tailscale on Ubuntu 24.04
+  block:
+    - name: Add Tailscale GPG key
+      ansible.builtin.get_url:
+        url: https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        mode: '0644'
+
+    - name: Add Tailscale repository
+      ansible.builtin.get_url:
+        url: https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list
+        dest: /etc/apt/sources.list.d/tailscale.list
+        mode: '0644'
+
+
+    - name: Install Tailscale
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+        update_cache: true
+
+    - name: Check if Tailscale is already connected
+      ansible.builtin.command:
+        cmd: tailscale status --json
+      register: tailscale_status
+      failed_when: false
+      changed_when: false
+
+    - name: Parse Tailscale status
+      ansible.builtin.set_fact:
+        tailscale_connected: "{{ (tailscale_status.stdout | from_json).BackendState == 'Running' }}"
+      when: tailscale_status.rc == 0
+
+    - name: Set tailscale_connected to false if status command failed
+      ansible.builtin.set_fact:
+        tailscale_connected: false
+      when: tailscale_status.rc != 0
+
+    - name: Join Tailscale network with auth key
+      ansible.builtin.command:
+        cmd: "tailscale up --auth-key={{ tailscale_auth_key }}{{ ' --advertise-routes=' + tailscale_advertise_routes if tailscale_advertise_routes is defined else '' }}{{ ' --accept-routes' if tailscale_accept_routes | default(false) else '' }}{{ ' --ssh' if tailscale_enable_ssh | default(false) else '' }}"
+      when:
+        - not tailscale_connected
+        - tailscale_auth_key is defined
+        - tailscale_auth_key | length > 0
+      no_log: true  # Hide auth key from logs
+      changed_when: false
+
+    - name: Enable and start Tailscale service
+      ansible.builtin.systemd:
+        name: tailscaled
+        enabled: true
+        state: started
+
+    - name: Get Tailscale IPv4 address
+      ansible.builtin.command:
+        cmd: tailscale ip -4
+      register: tailscale_ipv4
+      changed_when: false
+      when: tailscale_connected or tailscale_auth_key is defined
+
+    - name: Display Tailscale IPv4 address
+      ansible.builtin.debug:
+        msg: "Tailscale IPv4 address: {{ tailscale_ipv4.stdout }}"
+      when: tailscale_ipv4 is defined and tailscale_ipv4.stdout is defined
+
+  rescue:
+    - name: Handle installation failure
+      ansible.builtin.fail:
+        msg: "Failed to install or configure Tailscale: {{ ansible_failed_result.msg }}"
