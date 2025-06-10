@@ -1,7 +1,6 @@
 ---
 - name: Reload UFW rules
-  community.general.ufw:
-    state: reloaded
+  ansible.builtin.command: ufw reload
   listen: Reload ufw
 
 - name: Restart UFW service

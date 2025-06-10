@@ -73,4 +73,4 @@ vault-decrypt:
 # run: Execute the playbook (requires check to pass first)
 # -----------------------------------------------------------------------------
 run: check
-	ansible-playbook -i $(INVENTORY) $(PLAYBOOK)
+	ansible-playbook -i $(INVENTORY) $(PLAYBOOK) --vault-password-file .vault_password
