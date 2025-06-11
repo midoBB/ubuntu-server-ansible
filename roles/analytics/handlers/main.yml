@@ -1,0 +1,19 @@
+---
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: restart vince
+  systemd:
+    name: vince
+    state: restarted
+
+- name: stop vince
+  systemd:
+    name: vince
+    state: stopped
+
+- name: start vince
+  systemd:
+    name: vince
+    state: started

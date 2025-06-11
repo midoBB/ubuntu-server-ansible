@@ -1,0 +1,99 @@
+---
+- name: Create vince group
+  ansible.builtin.group:
+    name: "{{ vince_group }}"
+    system: true
+    state: present
+
+- name: Create vince user
+  ansible.builtin.user:
+    name: "{{ vince_user }}"
+    group: "{{ vince_group }}"
+    home: "{{ vince_home }}"
+    shell: /bin/bash
+    system: true
+    create_home: true
+    state: present
+
+- name: Create vince directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ vince_user }}"
+    group: "{{ vince_group }}"
+    mode: "0755"
+  loop:
+    - "{{ vince_home }}"
+    - "{{ vince_home }}/bin"
+    - "{{ vince_data_dir }}"
+
+- name: Download vince binary
+  ansible.builtin.get_url:
+    url: "https://vinceanalytics.com/install.sh"
+    dest: "/tmp/vince_install.sh"
+    mode: "0755"
+  register: vince_download
+
+- name: Install vince binary
+  ansible.builtin.command: bash /tmp/vince_install.sh
+  args:
+    creates: "{{ vince_binary_path }}"
+  become: true
+  become_user: "{{ vince_user }}"
+  environment:
+    HOME: "{{ vince_home }}"
+    VINCE_INSTALL: "{{ vince_home }}"
+
+- name: Set ownership of vince binary
+  ansible.builtin.file:
+    path: "{{ vince_binary_path }}"
+    owner: "{{ vince_user }}"
+    group: "{{ vince_group }}"
+    mode: "0755"
+
+- name: Create vince systemd service file
+  ansible.builtin.template:
+    src: vince.service.j2
+    dest: /etc/systemd/system/vince.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart vince
+
+- name: Create vince environment file
+  ansible.builtin.template:
+    src: vince.env.j2
+    dest: /etc/default/vince
+    owner: root
+    group: root
+    mode: "0640"
+  notify:
+    - restart vince
+
+- name: Create admin account
+  ansible.builtin.command: >
+    {{ vince_binary_path }} admin
+    --data {{ vince_data_dir }}
+    --name {{ vince_admin_name }}
+    --password {{ vince_admin_password }}
+  become: true
+  become_user: "{{ vince_user }}"
+  environment:
+    HOME: "{{ vince_home }}"
+  args:
+    creates: "{{ vince_data_dir }}/pebble"
+  no_log: true
+
+- name: Enable and start vince service
+  ansible.builtin.systemd:
+    name: vince
+    enabled: "{{ vince_service_enabled }}"
+    state: "{{ vince_service_state }}"
+    daemon_reload: true
+
+- name: Clean up installation script
+  ansible.builtin.file:
+    path: /tmp/vince_install.sh
+    state: absent

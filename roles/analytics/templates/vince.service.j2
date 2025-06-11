@@ -1,0 +1,32 @@
+[Unit]
+Description=Vince Analytics Server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User={{ vince_user }}
+Group={{ vince_group }}
+WorkingDirectory={{ vince_home }}
+ExecStart={{ vince_binary_path }} serve
+EnvironmentFile=/etc/default/vince
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vince
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ vince_data_dir }}
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

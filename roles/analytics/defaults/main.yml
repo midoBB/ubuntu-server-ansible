@@ -1,0 +1,31 @@
+# Vince Analytics configuration
+vince_version: "latest"
+vince_user: "vince"
+vince_group: "vince"
+vince_home: "/opt/vince"
+vince_data_dir: "{{ vince_home }}/data"
+vince_binary_path: "{{ vince_home }}/bin/vince"
+
+# Server configuration
+vince_listen: ":8882"
+vince_url: "http://localhost:8882"
+vince_demo_url: "vinceanalytics.com"
+
+# Admin configuration
+vince_admin_name: ""
+vince_admin_password: ""
+
+# TLS configuration (optional)
+vince_auto_tls: false
+vince_acme_email: ""
+vince_acme_domain: ""
+
+# Additional domains to create on startup
+vince_domains: []
+
+# Enable profiling endpoint
+vince_profile: false
+
+# Systemd service configuration
+vince_service_enabled: true
+vince_service_state: "started"
