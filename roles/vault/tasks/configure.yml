@@ -4,7 +4,7 @@
     url: "https://127.0.0.1:8200/v1/sys/health"
     method: GET
     validate_certs: false
-    status_code: [200, 501]  # 501 is expected for uninitialized Vault
+    status_code: [200, 501] # 501 is expected for uninitialized Vault
   register: vault_health
   until: vault_health.status in [200, 501]
   retries: 30
@@ -29,3 +29,68 @@
     validate_certs: false
   register: vault_init_result
   when: not vault_init_status.json.initialized
+
+- name: Initialize systemd-creds
+  ansible.builtin.command:
+    cmd: "systemd-creds setup"
+  changed_when: false
+
+- name: Debug vault_init_result
+  ansible.builtin.debug:
+    var: vault_init_result.json
+  when: vault_init_result is defined
+
+- name: Store Vault unseal keys in systemd‑creds
+  ansible.builtin.shell: |
+    set -euo pipefail
+    echo '{{ item }}' \
+    | systemd-creds encrypt \
+        --name=vault_unseal_key_{{ ansible_loop.index }} \
+        --pretty - /etc/credstore/vault_unseal_key_{{ ansible_loop.index }}
+  args:
+    executable: /bin/bash
+  loop: "{{ vault_init_result.json['keys'] }}"
+  loop_control:
+    extended: true
+    label: "key #{{ ansible_loop.index }}"
+  changed_when: false
+  no_log: true
+
+- name: Store Vault root token in systemd‑creds
+  ansible.builtin.shell: |
+    set -euo pipefail
+    echo '{{ vault_init_result.json.root_token }}' \
+    | systemd-creds encrypt \
+        --name=vault_root_token \
+        --pretty - /etc/credstore/vault_root_token
+  args:
+    executable: /bin/bash
+  changed_when: false
+  no_log: true
+
+- name: Create vault-unseal script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/vault-unseal.sh
+    mode: "0700"
+    owner: vault
+    group: vault
+    src: files/vault-unseal.sh
+  notify: restart vault-unseal
+
+- name: Create vault-unseal systemd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/vault-unseal.service
+    mode: "0644"
+    owner: root
+    group: root
+    src: files/vault-unseal.service
+  notify:
+    - reload systemd
+    - restart vault-unseal
+
+- name: Enable and start vault-unseal service
+  ansible.builtin.systemd:
+    name: vault-unseal.service
+    enabled: true
+    state: started
+    daemon_reload: true

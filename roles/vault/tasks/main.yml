@@ -13,6 +13,12 @@
     shell: /usr/sbin/nologin
     system: true
 
+- name: Enable lingering for the vault user
+  ansible.builtin.command: "loginctl enable-linger vault"
+  changed_when: false
+  failed_when: false
+  notify: Reload systemd daemon for user
+
 - name: Include Vault installation tasks
   ansible.builtin.include_tasks: install.yml
 

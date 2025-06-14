@@ -1,4 +1,39 @@
 ---
+- name: “If vault_version == latest, fetch GitHub’s latest Vault release”
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/hashicorp/vault/releases/latest
+    method: GET
+    return_content: true
+    headers:
+      Accept: application/vnd.github.v3+json
+      User-Agent: ansible-vault
+  register: vault_release
+  when: vault_version == "latest"
+
+- name: “Set vault_version fact to GitHub’s tag_name (stripped of leading ‘v’)”
+  ansible.builtin.set_fact:
+    vault_version: >-
+      {{
+        (vault_release.json.tag_name | regex_replace('^v','')) | trim
+      }}
+  when: vault_version == "latest"
+
+- name: “Recompute download URL now that vault_version is final”
+  ansible.builtin.set_fact:
+    vault_download_url: "https://releases.hashicorp.com/vault/{{ vault_version }}/vault_{{ vault_version }}_linux_amd64.zip"
+  when: vault_version is defined
+
+- name: Install Vault dependencies
+  ansible.builtin.package:
+    name:
+      - curl
+      - unzip
+      - ca-certificates
+      - gnupg
+      - jq
+      - openssl
+    state: present
+
 - name: Download Vault checksum file
   ansible.builtin.get_url:
     url: https://releases.hashicorp.com/vault/{{ vault_version }}/vault_{{ vault_version }}_SHA256SUMS
