@@ -1,0 +1,31 @@
+---
+- name: Wait for Vault service to be ready
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8200/v1/sys/health"
+    method: GET
+    validate_certs: false
+    status_code: [200, 501]  # 501 is expected for uninitialized Vault
+  register: vault_health
+  until: vault_health.status in [200, 501]
+  retries: 30
+  delay: 2
+
+- name: Check if Vault is already initialized
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8200/v1/sys/init"
+    method: GET
+    validate_certs: false
+  register: vault_init_status
+  ignore_errors: true
+
+- name: Initialize Vault
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8200/v1/sys/init"
+    method: POST
+    body_format: json
+    body:
+      secret_shares: 5
+      secret_threshold: 3
+    validate_certs: false
+  register: vault_init_result
+  when: not vault_init_status.json.initialized

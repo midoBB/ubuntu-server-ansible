@@ -1,0 +1,113 @@
+---
+- name: Download Vault checksum file
+  ansible.builtin.get_url:
+    url: https://releases.hashicorp.com/vault/{{ vault_version }}/vault_{{ vault_version }}_SHA256SUMS
+    dest: "/tmp/vault_{{ vault_version }}_SHA256SUMS"
+    mode: "0644"
+
+- name: Extract checksum for Vault zip
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && grep 'vault_{{ vault_version }}_linux_amd64.zip' /tmp/vault_{{ vault_version }}_SHA256SUMS | cut -d ' ' -f 1"
+    executable: /bin/bash
+  register: vault_checksum
+  changed_when: false
+
+- name: Download Vault
+  ansible.builtin.get_url:
+    url: "{{ vault_download_url }}"
+    dest: "/tmp/vault_{{ vault_version }}.zip"
+    mode: "0644"
+    checksum: "sha256:{{ vault_checksum.stdout }}"
+
+- name: Unzip Vault binary
+  ansible.builtin.unarchive:
+    src: "/tmp/vault_{{ vault_version }}.zip"
+    dest: "{{ vault_install_dir }}"
+    remote_src: true
+    mode: "0755"
+  notify: Restart Vault
+
+- name: Set ownership of Vault binary
+  ansible.builtin.file:
+    path: "{{ vault_install_dir }}/vault"
+    owner: "{{ vault_user }}"
+    group: "{{ vault_group }}"
+    mode: "0700"
+
+- name: Remove temporary files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/vault_{{ vault_version }}.zip"
+    - "/tmp/vault_{{ vault_version }}_SHA256SUMS"
+
+- name: Create Vault directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ vault_user }}"
+    group: "{{ vault_group }}"
+    mode: "0750"
+  loop:
+    - "{{ vault_config_dir }}"
+    - "{{ vault_data_dir }}"
+
+- name: Copy Vault configuration
+  ansible.builtin.template:
+    src: vault.hcl.j2
+    dest: "{{ vault_config_dir }}/vault.hcl"
+    owner: "{{ vault_user }}"
+    group: "{{ vault_group }}"
+    mode: "0640"
+  notify: Restart Vault
+
+- name: Generate Vault TLS private key
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ vault_tls_key_file }} 2048"
+    creates: "{{ vault_tls_key_file }}"
+  notify: Restart Vault
+
+- name: Generate Vault TLS certificate
+  ansible.builtin.command:
+    cmd: "openssl req -new -x509 -key {{ vault_tls_key_file }} -out {{ vault_tls_cert_file }} -days 365 -subj '/CN=127.0.0.1'"
+    creates: "{{ vault_tls_cert_file }}"
+  notify: Restart Vault
+
+- name: Set permissions for Vault TLS files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: "{{ vault_user }}"
+    group: "{{ vault_group }}"
+    mode: "0600"
+  loop:
+    - "{{ vault_tls_key_file }}"
+    - "{{ vault_tls_cert_file }}"
+
+- name: Add Vault certificate to system trust store (Debian/Ubuntu)
+  ansible.builtin.copy:
+    src: "{{ vault_tls_cert_file }}"
+    dest: "/usr/local/share/ca-certificates/vault.crt"
+    remote_src: true
+    mode: "0644"
+
+- name: Update CA certificates (Debian/Ubuntu)
+  ansible.builtin.command:
+    cmd: update-ca-certificates
+  changed_when: false
+
+- name: Create systemd service for Vault
+  ansible.builtin.template:
+    src: vault.service.j2
+    dest: /etc/systemd/system/vault.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Vault
+
+- name: Enable and start Vault service
+  ansible.builtin.systemd:
+    name: vault
+    enabled: true
+    state: started
+    daemon_reload: true

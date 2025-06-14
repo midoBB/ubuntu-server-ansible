@@ -25,6 +25,8 @@
 - name: Install common packages
   ansible.builtin.apt:
     name:
+      - openssl
+      - ca-certificates
       - curl
       - wget
       - unzip
