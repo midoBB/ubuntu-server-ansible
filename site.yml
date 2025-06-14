@@ -19,3 +19,4 @@
     - tailscale
     - analytics
     - vault
+    - podman_services

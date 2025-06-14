@@ -94,3 +94,17 @@
     enabled: true
     state: started
     daemon_reload: true
+
+- name: Enable KV secrets engine
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/sys/mounts/secret"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_init_result.json.root_token }}"
+    body_format: json
+    body:
+      type: "kv-v2"
+      description: "KV Version 2 secret engine"
+  failed_when: false
+  # no_log: true

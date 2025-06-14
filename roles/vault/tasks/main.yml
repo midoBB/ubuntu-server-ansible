@@ -19,8 +19,14 @@
   failed_when: false
   notify: Reload systemd daemon for user
 
+- name: Check if vault is already installed
+  ansible.builtin.stat:
+    path: "{{ vault_install_dir }}/vault"
+  register: vault_installed
+
 - name: Include Vault installation tasks
   ansible.builtin.include_tasks: install.yml
+  when: not vault_installed.stat.exists
 
 - name: Include Vault configuration tasks
   ansible.builtin.include_tasks: configure.yml
