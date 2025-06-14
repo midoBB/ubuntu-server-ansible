@@ -1,0 +1,26 @@
+[Unit]
+Description=MinIO container
+After=shared-network-network.service
+Requires=shared-network-network.service
+
+[Container]
+Image=docker.io/minio/minio:latest
+ContainerName=shared-minio
+Network=shared-network.network
+PublishPort=9000:9000
+PublishPort=127.0.0.1:9001:9001
+Volume=/home/{{ deploy_user_name }}/podman/minio/data:/data
+Secret=minio-user,type=env,target=MINIO_ROOT_USER
+Secret=minio-password,type=env,target=MINIO_ROOT_PASSWORD
+Exec=server /data --console-address ":9001"
+
+HealthCmd=curl -f http://localhost:9000/minio/health/live || exit 1
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

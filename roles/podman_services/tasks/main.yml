@@ -1,0 +1,50 @@
+---
+- name: Read the vault root token
+  # TODO: This is a hack to get around the fact that we aren't setting up the vault correctly yet
+  ansible.builtin.command:
+    cmd: systemd-creds --system decrypt /etc/credstore/vault_root_token
+  register: vault_root_token
+  become: true
+
+- name: Set the vault root token
+  ansible.builtin.set_fact:
+    vault_root_token: "{{ vault_root_token.stdout }}"
+
+- name: Ensure .config/containers/systemd directories exist
+  ansible.builtin.file:
+    path: "/home/{{ deploy_user_name }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ deploy_user_name }}"
+    group: "{{ deploy_user_name }}"
+    mode: "0755"
+    recurse: true
+
+- name: Template the shared network file
+  ansible.builtin.template:
+    src: shared-network.network.j2
+    dest: "/home/{{ deploy_user_name }}/.config/containers/systemd/shared-network.network"
+    owner: "{{ deploy_user_name }}"
+    group: "{{ deploy_user_name }}"
+    mode: "0644"
+
+- name: Reload systemd daemon for the shared network users
+  ansible.builtin.systemd:
+    scope: user
+    daemon_reload: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Start and enable the shared network
+  ansible.builtin.systemd:
+    name: shared-network-network.service
+    state: started
+    enabled: true
+    scope: user
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Create Postgres
+  ansible.builtin.include_tasks: postgres.yml
+
+- name: Create MinIO
+  ansible.builtin.include_tasks: minio.yml

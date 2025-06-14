@@ -1,0 +1,78 @@
+---
+- name: Store PostgreSQL secrets in Vault
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/secret/data/postgres"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      data:
+        username: "{{ psql_user }}"
+        password: "{{ psql_pass }}"
+  # no_log: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Retrieve PostgreSQL secrets from Vault
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/secret/data/postgres"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+  register: postgres_secrets
+  # no_log: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Create Podman secrets for PostgreSQL
+  ansible.builtin.command:
+    cmd: "podman secret create postgres-user -"
+    stdin: "{{ postgres_secrets.json.data.data.username }}"
+  become: true
+  become_user: "{{ deploy_user_name }}"
+  no_log: true
+  ignore_errors: true
+
+- name: Create Podman secrets for PostgreSQL password
+  ansible.builtin.command:
+    cmd: "podman secret create postgres-password -"
+    stdin: "postgres_secrets.json.data.data.password"
+  become: true
+  become_user: "{{ deploy_user_name }}"
+  no_log: true
+  ignore_errors: true
+
+- name: Create data directory for PostgreSQL
+  ansible.builtin.file:
+    path: "/home/{{ deploy_user_name }}/podman/postgres/data"
+    state: directory
+    owner: "{{ deploy_user_name }}"
+    group: "{{ deploy_user_name }}"
+    mode: "0755"
+    recurse: true
+
+- name: Template the PostgreSQL container file
+  ansible.builtin.template:
+    src: postgres.container.j2
+    dest: "/home/{{ deploy_user_name }}/.config/containers/systemd/postgres.container"
+    owner: "{{ deploy_user_name }}"
+    group: "{{ deploy_user_name }}"
+    mode: "0644"
+
+- name: Reload systemd daemon for the deploy user
+  ansible.builtin.systemd:
+    scope: user
+    daemon_reload: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Start PostgreSQL container
+  ansible.builtin.systemd:
+    name: postgres.service
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ deploy_user_name }}"

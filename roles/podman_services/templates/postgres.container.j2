@@ -1,0 +1,25 @@
+[Unit]
+Description=PostgreSQL container
+After=shared-network-network.service
+Requires=shared-network-network.service
+
+[Container]
+Image=docker.io/library/postgres:17.5-alpine3.22
+ContainerName=shared-postgres
+Network=shared-network.network
+PublishPort=127.0.0.1:5432:5432
+Volume=/home/{{ deploy_user_name }}/podman/postgres/data:/var/lib/postgresql/data
+Secret=postgres-user,type=env,target=POSTGRES_USER
+Secret=postgres-password,type=env,target=POSTGRES_PASSWORD
+Environment=POSTGRES_DB=main
+
+HealthCmd=pg_isready -U {{ psql_user }} -d main
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

@@ -30,7 +30,6 @@ crowdsec_collections:
   - crowdsecurity/linux
   - crowdsecurity/base-http-scenarios
   - crowdsecurity/http-cve
-  - crowdsecurity/http-dos
   - crowdsecurity/iptables
   - crowdsecurity/pgsql
   - crowdsecurity/whitelist-good-actors

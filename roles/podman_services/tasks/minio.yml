@@ -1,0 +1,127 @@
+---
+- name: Store MinIO secrets in Vault
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/secret/data/minio"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      data:
+        username: "{{ minio_user }}"
+        password: "{{ minio_pass }}"
+  no_log: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Retrieve MinIO secrets from Vault
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8200/v1/secret/data/minio"
+    validate_certs: false
+    method: GET
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+  register: minio_secrets
+  # no_log: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Create Podman secrets for MinIO
+  ansible.builtin.command:
+    cmd: "podman secret create minio-user -"
+    stdin: "{{ minio_secrets.json.data.data.username }}"
+  become: true
+  become_user: "{{ deploy_user_name }}"
+  ignore_errors: true
+  no_log: true
+
+- name: Create Podman secrets for MinIO password
+  ansible.builtin.command:
+    cmd: "podman secret create minio-password -"
+    stdin: "{{ minio_secrets.json.data.data.password }}"
+  become: true
+  become_user: "{{ deploy_user_name }}"
+  ignore_errors: true
+  no_log: true
+
+- name: Create data directory for MinIO
+  ansible.builtin.file:
+    path: "/home/{{ deploy_user_name }}/podman/minio/data"
+    state: directory
+    owner: "{{ deploy_user_name }}"
+    group: "{{ deploy_user_name }}"
+    mode: "0755"
+    recurse: true
+
+- name: Template the MinIO container file
+  ansible.builtin.template:
+    src: minio.container.j2
+    dest: "/home/{{ deploy_user_name }}/.config/containers/systemd/minio.container"
+    owner: "{{ deploy_user_name }}"
+    group: "{{ deploy_user_name }}"
+    mode: "0644"
+
+- name: Reload systemd daemon for the deploy user
+  ansible.builtin.systemd:
+    scope: user
+    daemon_reload: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Start MinIO container
+  ansible.builtin.systemd:
+    name: minio.service
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Wait for MinIO to become healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:9000/minio/health/live"
+    status_code: 200
+  register: minio_health_check
+  until: minio_health_check.status == 200
+  retries: 30
+  delay: 5
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Set Minio Alias (necessary for the rest of the playbook)
+  ansible.builtin.command:
+    cmd: "podman exec shared-minio mc alias set local http://127.0.0.1:9000 {{ minio_secrets.json.data.data.username }} {{ minio_secrets.json.data.data.password }}"
+  changed_when: false
+  become: true
+  become_user: "{{ deploy_user_name }}"
+
+- name: Create new admin access key for MinIO
+  ansible.builtin.command:
+    cmd: "podman exec shared-minio mc admin accesskey create local"
+  register: minio_new_key_result
+  changed_when: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
+- name: Save MinIO access and secret keys as facts
+  ansible.builtin.set_fact:
+    minio_access_key: "{{ minio_new_key_result.stdout | regex_search('Access Key: (\\S+)', '\\1') | first }}"
+    minio_secret_key: "{{ minio_new_key_result.stdout | regex_search('Secret Key: (\\S+)', '\\1') | first }}"
+  # no_log: true
+
+- name: Store new MinIO access keys in Vault
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8200/v1/secret/data/minio"
+    validate_certs: false
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      data:
+        username: "{{ minio_user }}"
+        password: "{{ minio_pass }}"
+        access_key: "{{ minio_access_key }}"
+        secret_key: "{{ minio_secret_key }}"
+  # no_log: true
+  become: true
+  become_user: "{{ deploy_user_name }}"
