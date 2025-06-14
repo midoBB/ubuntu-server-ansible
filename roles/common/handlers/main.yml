@@ -1,0 +1,5 @@
+---
+- name: Restart packagekit
+  ansible.builtin.systemd:
+    name: packagekit
+    state: restarted

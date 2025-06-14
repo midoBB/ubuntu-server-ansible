@@ -51,8 +51,12 @@
   when: crowdsec_enrollment_key is defined and crowdsec_enrollment_key != ""
   notify: Reload crowdsec
 
+- name: Update CrowdSec hub
+  ansible.builtin.command: "cscli hub update"
+  notify: Reload crowdsec
+
 - name: Install required CrowdSec collections
-  ansible.builtin.command: "cscli collections install {{ item }}"
+  ansible.builtin.command: "cscli collections install {{ item }} --force"
   loop: "{{ crowdsec_collections }}"
   changed_when: "'was already installed' not in result.stdout"
   notify: Reload crowdsec

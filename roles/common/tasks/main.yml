@@ -16,6 +16,12 @@
     group: root
     mode: "0644"
 
+- name: Stop packagekit
+  ansible.builtin.systemd:
+    name: packagekit
+    state: stopped
+  notify: Restart packagekit
+
 - name: Install common packages
   ansible.builtin.apt:
     name:
