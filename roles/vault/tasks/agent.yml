@@ -1,0 +1,52 @@
+---
+- name: Create agent configuration directory
+  ansible.builtin.file:
+    path: "{{ vault_config_dir }}/templates"
+    state: directory
+    owner: vault
+    group: vault
+    mode: "0750"
+    recurse: true
+
+- name: Template the Vault agent configuration file
+  ansible.builtin.template:
+    src: vault-agent.hcl.j2
+    dest: "{{ vault_config_dir }}/vault-agent.hcl"
+    owner: vault
+    group: vault
+    mode: "0640"
+  notify: Restart Vault
+  vars:
+    services:
+      - "postgres"
+      - "minio"
+
+- name: Template the Vault agent systemd service file
+  ansible.builtin.template:
+    src: vault-agent.service.j2
+    dest: /etc/systemd/system/vault-agent.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Vault
+
+- name: Create env file templates
+  ansible.builtin.template:
+    src: service.env.tpl.j2
+    dest: "/etc/vault.d/templates/{{ item }}.env.tpl"
+    owner: vault
+    group: vault
+    mode: "0644"
+  vars:
+    services:
+      - "postgres"
+      - "minio"
+  loop: "{{ services }}"
+
+- name: Enable Vault agent service
+  ansible.builtin.systemd:
+    name: vault-agent.service
+    enabled: true
+    daemon_reload: true
+
+

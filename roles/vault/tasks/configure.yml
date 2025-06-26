@@ -35,9 +35,10 @@
     cmd: "systemd-creds setup"
   changed_when: false
 
-- name: Debug vault_init_result
-  ansible.builtin.debug:
-    var: vault_init_result.json
+- name: Set Vault root token fact
+  ansible.builtin.set_fact:
+    vault_root_token: "{{ vault_init_result.json.root_token }}"
+  no_log: true
   when: vault_init_result is defined
 
 - name: Store Vault unseal keys in systemd‑creds
@@ -53,18 +54,6 @@
   loop_control:
     extended: true
     label: "key #{{ ansible_loop.index }}"
-  changed_when: false
-  no_log: true
-
-- name: Store Vault root token in systemd‑creds
-  ansible.builtin.shell: |
-    set -euo pipefail
-    echo '{{ vault_init_result.json.root_token }}' \
-    | systemd-creds encrypt \
-        --name=vault_root_token \
-        --pretty - /etc/credstore/vault_root_token
-  args:
-    executable: /bin/bash
   changed_when: false
   no_log: true
 
@@ -106,5 +95,19 @@
     body:
       type: "kv-v2"
       description: "KV Version 2 secret engine"
+  failed_when: false
+  no_log: true
+
+- name: Enable AppRole auth method
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/sys/auth/approle"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_init_result.json.root_token if vault_init_result is defined else vault_root_token }}"
+    body_format: json
+    body:
+      type: "approle"
+      description: "AppRole auth method for service authentication"
   failed_when: false
   no_log: true

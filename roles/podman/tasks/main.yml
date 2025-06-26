@@ -25,18 +25,13 @@
     mode: "0644"
   notify: restart podman user socket
 
-- name: Get UID of deploy user on target
-  ansible.builtin.command: "id -u {{ deploy_user_name }}"
-  register: deploy_user_uid
-  changed_when: false
-
 - name: Ensure Podman is configured to use rootless mode
   ansible.builtin.command:
     cmd: "podman system migrate"
   become: true
   become_user: "{{ deploy_user_name }}"
   environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ deploy_user_uid.stdout }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ deploy_user_uid }}"
   changed_when: false
   failed_when: false
 
@@ -45,7 +40,7 @@
   become: true
   become_user: "{{ deploy_user_name }}"
   environment:
-    XDG_RUNTIME_DIR: "/run/user/{{ deploy_user_uid.stdout }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ deploy_user_uid }}"
   changed_when: false
   failed_when: false
 

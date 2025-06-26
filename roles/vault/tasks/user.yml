@@ -1,0 +1,20 @@
+---
+- name: Ensure Vault group exists
+  ansible.builtin.group:
+    name: "{{ vault_group }}"
+    state: present
+    system: true
+
+- name: Ensure Vault user exists
+  ansible.builtin.user:
+    name: "{{ vault_user }}"
+    group: "{{ vault_group }}"
+    # create_home: false
+    # shell: /usr/sbin/nologin #TODO: uncomment later
+    system: true
+
+- name: Enable lingering for the vault user
+  ansible.builtin.command: "loginctl enable-linger vault"
+  changed_when: false
+  failed_when: false
+  notify: Reload systemd daemon for user

@@ -1,0 +1,29 @@
+vault {
+  address = "https://127.0.0.1:8200"
+  ca_cert = "{{ vault_tls_cert_file }}"
+}
+
+auto_auth {
+  method "approle" {
+    mount_path = "auth/approle"
+    config = {
+      role_id_file_path = "{{ vault_secret_dest_dir }}/role-id"
+      secret_id_file_path = "{{ vault_secret_dest_dir }}/secret-id"
+    }
+  }
+  sink {
+    type = "file"
+
+    config = {
+      path = "{{vault_secret_dest_dir}}/approle_token"
+    }
+  }
+}
+
+{% for service in services  %}
+template {
+source = "{{vault_config_dir}}/templates/{{ service }}.env.tpl"
+  destination = "{{ vault_secret_dest_dir }}/{{ service }}.env"
+  perms = 0640
+}
+{% endfor %}

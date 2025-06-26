@@ -1,28 +1,12 @@
 ---
-- name: Ensure Vault group exists
-  ansible.builtin.group:
-    name: "{{ vault_group }}"
-    state: present
-    system: true
-
-- name: Ensure Vault user exists
-  ansible.builtin.user:
-    name: "{{ vault_user }}"
-    group: "{{ vault_group }}"
-    create_home: false
-    shell: /usr/sbin/nologin
-    system: true
-
-- name: Enable lingering for the vault user
-  ansible.builtin.command: "loginctl enable-linger vault"
-  changed_when: false
-  failed_when: false
-  notify: Reload systemd daemon for user
-
 - name: Check if vault is already installed
   ansible.builtin.stat:
     path: "{{ vault_install_dir }}/vault"
   register: vault_installed
+
+- name: Include Vault user tasks
+  ansible.builtin.include_tasks: user.yml
+  when: not vault_installed.stat.exists
 
 - name: Include Vault installation tasks
   ansible.builtin.include_tasks: install.yml
@@ -30,3 +14,12 @@
 
 - name: Include Vault configuration tasks
   ansible.builtin.include_tasks: configure.yml
+  when: not vault_installed.stat.exists
+
+- name: Include Vault authentication configuration tasks
+  ansible.builtin.include_tasks: auth_conf.yml
+  when: not vault_installed.stat.exists
+
+- name: Include Vault agent tasks
+  ansible.builtin.include_tasks: agent.yml
+  when: not vault_installed.stat.exists

@@ -13,6 +13,17 @@
     create_home: true
     state: present
 
+- name: Ensure deploy user exists and pick up its UID/GID
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ deploy_user_name }}"
+
+- name: Register GID/UID from system facts
+  ansible.builtin.set_fact:
+    deploy_user_uid: "{{ ansible_facts.getent_passwd[deploy_user_name][1] | int }}"
+    deploy_user_gid: "{{ ansible_facts.getent_passwd[deploy_user_name][2] | int }}"
+
+
 - name: Set up authorized keys for the deploy user
   ansible.posix.authorized_key:
     user: "{{ deploy_user_name }}"

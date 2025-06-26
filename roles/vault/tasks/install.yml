@@ -32,6 +32,7 @@
       - gnupg
       - jq
       - openssl
+      - python3-hvac
     state: present
 
 - name: Download Vault checksum file
