@@ -111,3 +111,69 @@
       description: "AppRole auth method for service authentication"
   failed_when: false
   no_log: true
+
+- name: Enable userpass auth method
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/sys/auth/userpass"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      type: "userpass"
+      description: "Username/password auth method"
+    status_code: [200, 204]
+  failed_when: false
+  no_log: true
+
+- name: Create admin policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8200/v1/sys/policies/acl/admin"
+    method: PUT
+    status_code: [200, 204]
+    validate_certs: false
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    body:
+      policy: |
+        # Full access to all paths
+        path "*" {
+          capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+        }
+
+- name: Create admin user
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/auth/userpass/users/{{ vault_admin_username }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_root_token }}"
+    body_format: json
+    status_code: [200, 204]
+    body:
+      password: "{{ vault_admin_password }}"
+      policies: ["default", "admin"]
+  no_log: true
+
+- name: Test userpass login to verify admin user works
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/auth/userpass/login/{{ vault_admin_username }}"
+    method: POST
+    body_format: json
+    body:
+      password: "{{ vault_admin_password }}"
+  register: userpass_login_test
+  no_log: true
+
+- name: Revoke root token
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "https://127.0.0.1:8200/v1/auth/token/revoke-self"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_init_result.json.root_token if vault_init_result is defined else vault_root_token }}"
+    status_code: [200, 204]
+  no_log: true

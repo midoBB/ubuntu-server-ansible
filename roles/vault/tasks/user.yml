@@ -13,6 +13,12 @@
     # shell: /usr/sbin/nologin #TODO: uncomment later
     system: true
 
+- name: Add Deploy user to Vault group
+  ansible.builtin.user:
+    name: "{{ deploy_user_name }}"
+    groups: "{{ vault_group }}"
+    append: true
+
 - name: Enable lingering for the vault user
   ansible.builtin.command: "loginctl enable-linger vault"
   changed_when: false

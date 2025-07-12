@@ -15,11 +15,3 @@
 - name: Include Vault configuration tasks
   ansible.builtin.include_tasks: configure.yml
   when: not vault_installed.stat.exists
-
-- name: Include Vault authentication configuration tasks
-  ansible.builtin.include_tasks: auth_conf.yml
-  when: not vault_installed.stat.exists
-
-- name: Include Vault agent tasks
-  ansible.builtin.include_tasks: agent.yml
-  when: not vault_installed.stat.exists

@@ -106,7 +106,7 @@
 
 - name: Generate Vault TLS certificate
   ansible.builtin.command:
-    cmd: "openssl req -new -x509 -key {{ vault_tls_key_file }} -out {{ vault_tls_cert_file }} -days 365 -subj '/CN=127.0.0.1'"
+    cmd: "openssl req -new -x509 -key {{ vault_tls_key_file }} -out {{ vault_tls_cert_file }} -days 365 -subj '/CN=127.0.0.1' -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost'"
     creates: "{{ vault_tls_cert_file }}"
   notify: Restart Vault
 
