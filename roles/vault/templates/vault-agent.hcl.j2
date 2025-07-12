@@ -1,29 +1,45 @@
 vault {
   address = "https://127.0.0.1:8200"
-  ca_cert = "{{ vault_tls_cert_file }}"
+  tls_skip_verify = true
 }
 
 auto_auth {
   method "approle" {
     mount_path = "auth/approle"
     config = {
-      role_id_file_path = "{{ vault_secret_dest_dir }}/role-id"
-      secret_id_file_path = "{{ vault_secret_dest_dir }}/secret-id"
+      role_id_file_path = "{{ vault_agent_config_dir }}/role_id"
+      secret_id_file_path = "{{ vault_agent_config_dir }}/secret_id"
     }
   }
-  sink {
-    type = "file"
 
+  sink "file" {
     config = {
-      path = "{{vault_secret_dest_dir}}/approle_token"
+      path = "{{ vault_agent_data_dir }}/vault-token"
+      mode = 0640
     }
   }
 }
 
-{% for service in services  %}
+cache {
+  use_auto_auth_token = true
+}
+
+listener "unix" {
+  address = "{{ vault_agent_data_dir }}/vault-agent.sock"
+  tls_disable = true
+}
+
+{% for secret in vault_agent_secrets %}
 template {
-source = "{{vault_config_dir}}/templates/{{ service }}.env.tpl"
-  destination = "{{ vault_secret_dest_dir }}/{{ service }}.env"
+  destination = "{{ vault_agent_secrets_dir }}/{{ secret.output_file }}"
   perms = 0640
+  contents    = <<EOH
+{% raw %}{{- with secret (printf "secret/data/%s" "{% endraw %}{{ secret.path | replace('secret/data/', '') }}{% raw %}") -}}
+{{- range $key, $value := .Data.data }}
+{{ printf "%s='%s'" $key $value }}
+{{- end }}
+{{- end }}{% endraw %}
+
+EOH
 }
 {% endfor %}

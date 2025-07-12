@@ -4,3 +4,4 @@ all:
     ubuntu-server:
       ansible_host: "{{ lookup('env', 'SERVER_IP') }}"
       ansible_user: "{{ lookup('env', 'SERVER_USER') }}"
+      ansible_port: "{{ lookup('env', 'SERVER_PORT') }}"

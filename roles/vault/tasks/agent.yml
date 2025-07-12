@@ -1,52 +1,158 @@
 ---
-- name: Create agent configuration directory
-  ansible.builtin.file:
-    path: "{{ vault_config_dir }}/templates"
-    state: directory
-    owner: vault
-    group: vault
-    mode: "0750"
-    recurse: true
+- name: Login to Vault and save token
+  community.hashi_vault.vault_login:
+    url: "https://127.0.0.1:8200"
+    auth_method: userpass
+    username: "{{ vault_admin_username }}"
+    password: "{{ vault_admin_password }}"
+  register: vault_login_result
 
-- name: Template the Vault agent configuration file
+- name: Set Vault token as fact
+  ansible.builtin.set_fact:
+    vault_token: "{{ vault_login_result.login.auth.client_token }}"
+
+- name: Create agent policy for reading secrets
+  ansible.builtin.shell: |
+    export VAULT_ADDR=https://127.0.0.1:8200
+    export VAULT_SKIP_VERIFY=true
+    export VAULT_TOKEN="{{ vault_token }}"
+    vault policy write agent-policy - <<EOF
+    path "secret/data/*" {
+      capabilities = ["read"]
+    }
+    EOF
+  args:
+    executable: /bin/bash
+  register: agent_policy_result
+  failed_when: agent_policy_result.rc != 0
+  no_log: true
+
+- name: Create AppRole and attach policy
+  ansible.builtin.shell: |
+    export VAULT_ADDR=https://127.0.0.1:8200
+    export VAULT_SKIP_VERIFY=true
+    export VAULT_TOKEN="{{ vault_token }}"
+    vault write auth/approle/role/vault-agent-role policies="agent-policy"
+  args:
+    executable: /bin/bash
+  register: approle_create_result
+  failed_when: approle_create_result.rc != 0
+  no_log: true
+
+- name: Generate role_id
+  ansible.builtin.shell: |
+    export VAULT_ADDR=https://127.0.0.1:8200
+    export VAULT_SKIP_VERIFY=true
+    export VAULT_TOKEN="{{ vault_token }}"
+    vault read -field=role_id auth/approle/role/vault-agent-role/role-id
+  args:
+    executable: /bin/bash
+  register: vault_role_id_result
+  failed_when: vault_role_id_result.rc != 0
+  no_log: true
+
+- name: Generate secret_id
+  ansible.builtin.shell: |
+    export VAULT_ADDR=https://127.0.0.1:8200
+    export VAULT_SKIP_VERIFY=true
+    export VAULT_TOKEN="{{ vault_token }}"
+    vault write -field=secret_id -f auth/approle/role/vault-agent-role/secret-id
+  args:
+    executable: /bin/bash
+  register: vault_secret_id_result
+  failed_when: vault_secret_id_result.rc != 0
+  no_log: true
+
+- name: Set AppRole credentials as facts
+  ansible.builtin.set_fact:
+    vault_role_ids:
+      results:
+        - json:
+            data:
+              role_id: "{{ vault_role_id_result.stdout }}"
+    vault_secret_ids:
+      results:
+        - json:
+            data:
+              secret_id: "{{ vault_secret_id_result.stdout }}"
+  no_log: true
+
+- name: Create vault-agent directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ vault_agent_user }}"
+    group: "{{ vault_agent_group }}"
+    mode: "0750"
+  loop:
+    - "{{ vault_agent_config_dir }}"
+    - "{{ vault_agent_data_dir }}"
+
+- name: Create vault-agent secrets directory
+  ansible.builtin.file:
+    path: "{{ vault_agent_secrets_dir }}"
+    state: directory
+    owner: "{{ vault_agent_user }}"
+    group: "{{ vault_agent_group }}"
+    mode: "0750"
+
+- name: Create vault-agent configuration
   ansible.builtin.template:
     src: vault-agent.hcl.j2
-    dest: "{{ vault_config_dir }}/vault-agent.hcl"
-    owner: vault
-    group: vault
+    dest: "{{ vault_agent_config_dir }}/vault-agent.hcl"
+    owner: "{{ vault_agent_user }}"
+    group: "{{ vault_agent_group }}"
     mode: "0640"
-  notify: Restart Vault
-  vars:
-    services:
-      - "postgres"
-      - "minio"
+  notify: restart vault-agent
 
-- name: Template the Vault agent systemd service file
+- name: Create AppRole credentials environment file
+  ansible.builtin.template:
+    src: approle.env.j2
+    dest: "{{ vault_agent_config_dir }}/approle.env"
+    owner: "{{ vault_agent_user }}"
+    group: "{{ vault_agent_group }}"
+    mode: "0600"
+  vars:
+    vault_approle_role_id: "{{ vault_role_ids.results[0].json.data.role_id | default('') }}"
+    vault_approle_secret_id: "{{ vault_secret_ids.results[0].json.data.secret_id | default('') }}"
+  when: vault_role_ids is defined and vault_secret_ids is defined
+  no_log: true
+
+- name: Create role_id file from AppRole credentials
+  ansible.builtin.shell: |
+    source {{ vault_agent_config_dir }}/approle.env
+    echo "$VAULT_ROLE_ID" > {{ vault_agent_config_dir }}/role_id
+    echo "$VAULT_SECRET_ID" > {{ vault_agent_config_dir }}/secret_id
+  args:
+    executable: /bin/bash
+  when: vault_role_ids is defined
+  no_log: true
+
+- name: Set permissions on AppRole credential files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: "{{ vault_agent_user }}"
+    group: "{{ vault_agent_group }}"
+    mode: "0600"
+  loop:
+    - "{{ vault_agent_config_dir }}/role_id"
+    - "{{ vault_agent_config_dir }}/secret_id"
+  when: vault_role_ids is defined and vault_secret_ids is defined
+
+- name: Create vault-agent systemd service
   ansible.builtin.template:
     src: vault-agent.service.j2
     dest: /etc/systemd/system/vault-agent.service
     owner: root
     group: root
     mode: "0644"
-  notify: Restart Vault
+  notify:
+    - reload systemd
+    - restart vault-agent
 
-- name: Create env file templates
-  ansible.builtin.template:
-    src: service.env.tpl.j2
-    dest: "/etc/vault.d/templates/{{ item }}.env.tpl"
-    owner: vault
-    group: vault
-    mode: "0644"
-  vars:
-    services:
-      - "postgres"
-      - "minio"
-  loop: "{{ services }}"
-
-- name: Enable Vault agent service
+- name: Enable and start vault-agent service
   ansible.builtin.systemd:
     name: vault-agent.service
     enabled: true
+    state: started
     daemon_reload: true
-
-

@@ -13,3 +13,17 @@ vault_runtime_dir: "secrets/vault"
 
 vault_admin_username: "{{ vault_admin_username }}"
 vault_admin_password: "{{ vault_admin_password }}"
+
+# Vault Agent configuration
+vault_agent_config_dir: "/etc/vault-agent.d"
+vault_agent_data_dir: "/opt/vault-agent"
+vault_agent_secrets_dir: "/var/vault/secrets"
+vault_agent_user: "vault"
+vault_agent_group: "vault"
+
+# Vault Agent secrets to template
+vault_agent_secrets: # NOTE: This is a placeholder for now, later on this needs to be populated with all the secrets that need to be templated
+  - path: "secret/data/postgres"
+    output_file: "postgres.env"
+  - path: "secret/data/minio"
+    output_file: "minio.env"
