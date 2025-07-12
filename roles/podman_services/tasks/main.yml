@@ -1,14 +1,17 @@
 ---
-- name: Read the vault root token
-  # TODO: This is a hack to get around the fact that we aren't setting up the vault correctly yet
-  ansible.builtin.command:
-    cmd: systemd-creds --system decrypt /etc/credstore/vault_root_token
-  register: vault_root_token
-  become: true
 
-- name: Set the vault root token
+- name: Login to Vault and save token
+  community.hashi_vault.vault_login:
+    url: "https://127.0.0.1:8200"
+    auth_method: userpass
+    username: "{{ vault_admin_username }}"
+    password: "{{ vault_admin_password }}"
+  register: vault_login_result
+  no_log: true
+
+- name: Set Vault token as fact
   ansible.builtin.set_fact:
-    vault_root_token: "{{ vault_root_token.stdout }}"
+    vault_token: "{{ vault_login_result.login.auth.client_token }}"
 
 - name: Ensure .config/containers/systemd directories exist
   ansible.builtin.file:
@@ -46,5 +49,3 @@
 - name: Create Postgres
   ansible.builtin.include_tasks: postgres.yml
 
-- name: Create MinIO
-  ansible.builtin.include_tasks: minio.yml

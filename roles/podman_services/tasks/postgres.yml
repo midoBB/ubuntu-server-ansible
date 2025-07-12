@@ -1,49 +1,17 @@
 ---
 - name: Store PostgreSQL secrets in Vault
-  ansible.builtin.uri:
-    validate_certs: false
-    url: "https://127.0.0.1:8200/v1/secret/data/postgres"
-    method: POST
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-    body_format: json
-    body:
-      data:
-        username: "{{ psql_user }}"
-        password: "{{ psql_pass }}"
-  # no_log: true
-  become: true
-  become_user: "{{ deploy_user_name }}"
+  community.hashi_vault.vault_kv2_write:
+    url: https://127.0.0.1:8200
+    token: "{{ vault_token }}"
+    path: postgres
+    data:
+      POSTGRES_USER: "{{ psql_user }}"
+      POSTGRES_PASSWORD: "{{ psql_pass }}"
 
-- name: Retrieve PostgreSQL secrets from Vault
-  ansible.builtin.uri:
-    validate_certs: false
-    url: "https://127.0.0.1:8200/v1/secret/data/postgres"
-    method: GET
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-  register: postgres_secrets
-  # no_log: true
-  become: true
-  become_user: "{{ deploy_user_name }}"
-
-- name: Create Podman secrets for PostgreSQL
-  ansible.builtin.command:
-    cmd: "podman secret create postgres-user -"
-    stdin: "{{ postgres_secrets.json.data.data.username }}"
-  become: true
-  become_user: "{{ deploy_user_name }}"
-  no_log: true
-  ignore_errors: true
-
-- name: Create Podman secrets for PostgreSQL password
-  ansible.builtin.command:
-    cmd: "podman secret create postgres-password -"
-    stdin: "postgres_secrets.json.data.data.password"
-  become: true
-  become_user: "{{ deploy_user_name }}"
-  no_log: true
-  ignore_errors: true
+- name: Restart Vault Agent
+  ansible.builtin.systemd:
+    name: vault
+    state: restarted
 
 - name: Create data directory for PostgreSQL
   ansible.builtin.file:
