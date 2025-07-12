@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+
+# Vault AppRole Credential Setup Script
+# This script sources AppRole environment variables and writes them to separate files
+
+set -euo pipefail
+
+# Configuration
+VAULT_CONFIG_DIR="{{ vault_agent_config_dir }}"
+APPROLE_ENV_FILE="${VAULT_CONFIG_DIR}/approle.env"
+ROLE_ID_FILE="${VAULT_CONFIG_DIR}/role_id"
+SECRET_ID_FILE="${VAULT_CONFIG_DIR}/secret_id"
+
+# Function to log messages
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >&2
+}
+
+# Function to cleanup on exit
+cleanup() {
+    if [[ $? -ne 0 ]]; then
+        log "ERROR: Script failed. Cleaning up any partial files..."
+        [[ -f "$ROLE_ID_FILE.tmp" ]] && rm -f "$ROLE_ID_FILE.tmp"
+        [[ -f "$SECRET_ID_FILE.tmp" ]] && rm -f "$SECRET_ID_FILE.tmp"
+    fi
+}
+
+trap cleanup EXIT
+
+# Validate inputs
+if [[ ! -d "$VAULT_CONFIG_DIR" ]]; then
+    log "ERROR: Vault config directory does not exist: $VAULT_CONFIG_DIR"
+    exit 1
+fi
+
+if [[ ! -f "$APPROLE_ENV_FILE" ]]; then
+    log "ERROR: AppRole environment file does not exist: $APPROLE_ENV_FILE"
+    exit 1
+fi
+
+if [[ ! -r "$APPROLE_ENV_FILE" ]]; then
+    log "ERROR: Cannot read AppRole environment file: $APPROLE_ENV_FILE"
+    exit 1
+fi
+
+log "Starting Vault AppRole credential setup..."
+
+# Source the environment file
+log "Sourcing AppRole environment variables from: $APPROLE_ENV_FILE"
+# shellcheck source=/dev/null
+source "$APPROLE_ENV_FILE"
+
+# Validate required environment variables
+if [[ -z "${VAULT_ROLE_ID:-}" ]]; then
+    log "ERROR: VAULT_ROLE_ID is not set or empty"
+    exit 1
+fi
+
+if [[ -z "${VAULT_SECRET_ID:-}" ]]; then
+    log "ERROR: VAULT_SECRET_ID is not set or empty"
+    exit 1
+fi
+
+# Write role_id to file (using temporary file for atomic operation)
+log "Writing role_id to: $ROLE_ID_FILE"
+echo "$VAULT_ROLE_ID" > "${ROLE_ID_FILE}.tmp"
+chmod 600 "${ROLE_ID_FILE}.tmp"
+mv "${ROLE_ID_FILE}.tmp" "$ROLE_ID_FILE"
+
+# Write secret_id to file (using temporary file for atomic operation)
+log "Writing secret_id to: $SECRET_ID_FILE"
+echo "$VAULT_SECRET_ID" > "${SECRET_ID_FILE}.tmp"
+chmod 600 "${SECRET_ID_FILE}.tmp"
+mv "${SECRET_ID_FILE}.tmp" "$SECRET_ID_FILE"
+
+# Verify files were created successfully
+if [[ -f "$ROLE_ID_FILE" && -f "$SECRET_ID_FILE" ]]; then
+    log "SUCCESS: AppRole credentials have been successfully written to files"
+    log "Role ID file: $ROLE_ID_FILE"
+    log "Secret ID file: $SECRET_ID_FILE"
+else
+    log "ERROR: Failed to create credential files"
+    exit 1
+fi
+
+log "Vault AppRole credential setup completed successfully"

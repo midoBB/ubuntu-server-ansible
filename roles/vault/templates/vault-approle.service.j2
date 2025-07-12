@@ -1,0 +1,44 @@
+[Unit]
+Description=Vault AppRole Credential Setup
+Documentation=man:systemd.service(5)
+After=network-online.target vault-unseal.service
+Wants=network-online.target
+Before=vault-agent.service
+PartOf=vault-agent.service
+StopPropagatedFrom=vault-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vault-approle.sh
+RemainAfterExit=yes
+
+# Security settings
+User=vault
+Group=vault
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={{ vault_agent_config_dir }}
+
+# Process settings
+TimeoutStartSec=30
+KillMode=process
+KillSignal=SIGTERM
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=3
+StartLimitIntervalSec=300
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vault-approle
+
+# Environment
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target

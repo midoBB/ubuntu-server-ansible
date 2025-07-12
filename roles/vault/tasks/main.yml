@@ -1,21 +1,21 @@
 ---
-# - name: Check if vault is already installed
-#   ansible.builtin.stat:
-#     path: "{{ vault_install_dir }}/vault"
-#   register: vault_installed
-#
-# - name: Include Vault user tasks
-#   ansible.builtin.include_tasks: user.yml
-#   when: not vault_installed.stat.exists
-#
-# - name: Include Vault installation tasks
-#   ansible.builtin.include_tasks: install.yml
-#   when: not vault_installed.stat.exists
-#
-# - name: Include Vault configuration tasks
-#   ansible.builtin.include_tasks: configure.yml
-#   when: not vault_installed.stat.exists
+- name: Check if vault is already installed
+  ansible.builtin.stat:
+    path: "{{ vault_install_dir }}/vault"
+  register: vault_installed
+
+- name: Include Vault user tasks
+  ansible.builtin.include_tasks: user.yml
+  when: not vault_installed.stat.exists
+
+- name: Include Vault installation tasks
+  ansible.builtin.include_tasks: install.yml
+  when: not vault_installed.stat.exists
+
+- name: Include Vault configuration tasks
+  ansible.builtin.include_tasks: configure.yml
+  when: not vault_installed.stat.exists
 
 - name: Include Vault Agent setup tasks
   ansible.builtin.include_tasks: agent.yml
-  # when: not vault_installed.stat.exists
+  when: not vault_installed.stat.exists

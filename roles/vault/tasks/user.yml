@@ -9,8 +9,8 @@
   ansible.builtin.user:
     name: "{{ vault_user }}"
     group: "{{ vault_group }}"
-    # create_home: false
-    # shell: /usr/sbin/nologin #TODO: uncomment later
+    create_home: false
+    shell: /usr/sbin/nologin
     system: true
 
 - name: Add Deploy user to Vault group

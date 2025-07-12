@@ -36,7 +36,7 @@ template {
   contents    = <<EOH
 {% raw %}{{- with secret (printf "secret/data/%s" "{% endraw %}{{ secret.path | replace('secret/data/', '') }}{% raw %}") -}}
 {{- range $key, $value := .Data.data }}
-{{ printf "%s='%s'" $key $value }}
+{{ printf "%s=%s" $key $value }}
 {{- end }}
 {{- end }}{% endraw %}
 

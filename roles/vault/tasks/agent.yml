@@ -150,6 +150,22 @@
     - reload systemd
     - restart vault-agent
 
+- name: Template approle service
+  ansible.builtin.template:
+    src: vault-approle.service.j2
+    dest: /etc/systemd/system/vault-approle.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Template approle script
+  ansible.builtin.template:
+    src: vault-approle.sh.j2
+    dest: /usr/local/bin/vault-approle.sh
+    owner: vault
+    group: vault
+    mode: "0700"
+
 - name: Enable and start vault-agent service
   ansible.builtin.systemd:
     name: vault-agent.service
