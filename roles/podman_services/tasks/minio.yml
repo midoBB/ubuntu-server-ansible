@@ -69,7 +69,7 @@
   ansible.builtin.get_url:
     url: https://dl.min.io/client/mc/release/linux-amd64/mc
     dest: /usr/local/bin/mc
-    mode: "0755"
+    mode: "0700"
     owner: "{{ deploy_user_name }}"
     group: "{{ deploy_user_name }}"
 
