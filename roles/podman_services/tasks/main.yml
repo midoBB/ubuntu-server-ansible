@@ -1,5 +1,4 @@
 ---
-
 - name: Login to Vault and save token
   community.hashi_vault.vault_login:
     url: "https://127.0.0.1:8200"
@@ -49,3 +48,5 @@
 - name: Create Postgres
   ansible.builtin.include_tasks: postgres.yml
 
+- name: Create MinIO
+  ansible.builtin.include_tasks: minio.yml

@@ -52,7 +52,7 @@ The repository currently runs two main roles (others are commented out in `site.
 
 #### Vault Role (`roles/vault/`)
 - **Purpose**: Deploys HashiCorp Vault for centralized secret management
-- **Key Features**: 
+- **Key Features**:
   - Raft storage backend with auto-unseal using systemd credentials
   - AppRole and UserPass authentication methods
   - Vault Agent for automatic secret retrieval
@@ -98,4 +98,4 @@ The repository currently runs two main roles (others are commented out in `site.
 - Verify environment variables are set before running playbooks
 - Check Vault service status: `systemctl --user status vault` (on target server)
 - Monitor container logs: `podman logs shared-postgres` or `podman logs shared-minio`
-- Vault UI available at `https://SERVER_IP:8200` for debugging authentication issues
+During development don't set anything to `no_log: true` in tasks

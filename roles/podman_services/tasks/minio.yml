@@ -1,49 +1,22 @@
 ---
 - name: Store MinIO secrets in Vault
-  ansible.builtin.uri:
-    validate_certs: false
-    url: "https://127.0.0.1:8200/v1/secret/data/minio"
-    method: POST
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-    body_format: json
-    body:
-      data:
-        username: "{{ minio_user }}"
-        password: "{{ minio_pass }}"
-  no_log: true
-  become: true
-  become_user: "{{ deploy_user_name }}"
+  community.hashi_vault.vault_kv2_write:
+    url: https://127.0.0.1:8200
+    path: minio
+    token: "{{ vault_token }}"
+    data:
+      MINIO_ROOT_USER: "{{ minio_user }}"
+      MINIO_ROOT_PASSWORD: "{{ minio_pass }}"
 
-- name: Retrieve MinIO secrets from Vault
-  ansible.builtin.uri:
-    url: "https://127.0.0.1:8200/v1/secret/data/minio"
-    validate_certs: false
-    method: GET
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-  register: minio_secrets
-  # no_log: true
-  become: true
-  become_user: "{{ deploy_user_name }}"
+- name: Restart Vault Agent
+  ansible.builtin.systemd:
+    name: vault-agent
+    state: restarted
 
-- name: Create Podman secrets for MinIO
-  ansible.builtin.command:
-    cmd: "podman secret create minio-user -"
-    stdin: "{{ minio_secrets.json.data.data.username }}"
-  become: true
-  become_user: "{{ deploy_user_name }}"
-  ignore_errors: true
-  no_log: true
-
-- name: Create Podman secrets for MinIO password
-  ansible.builtin.command:
-    cmd: "podman secret create minio-password -"
-    stdin: "{{ minio_secrets.json.data.data.password }}"
-  become: true
-  become_user: "{{ deploy_user_name }}"
-  ignore_errors: true
-  no_log: true
+- name: Wait for Vault Agent to generate MinIO environment file
+  ansible.builtin.wait_for:
+    path: "{{ vault_agent_secrets_dir }}/minio.env"
+    timeout: 60
 
 - name: Create data directory for MinIO
   ansible.builtin.file:
@@ -72,10 +45,13 @@
 - name: Start MinIO container
   ansible.builtin.systemd:
     name: minio.service
-    state: started
+    enabled: true
     scope: user
   become: true
   become_user: "{{ deploy_user_name }}"
+
+- name: Reboot the server
+  ansible.builtin.reboot:
 
 - name: Wait for MinIO to become healthy
   ansible.builtin.uri:
@@ -88,16 +64,25 @@
   become: true
   become_user: "{{ deploy_user_name }}"
 
+
+- name: Install MinIO client
+  ansible.builtin.get_url:
+    url: https://dl.min.io/client/mc/release/linux-amd64/mc
+    dest: /usr/local/bin/mc
+    mode: "0755"
+    owner: "{{ deploy_user_name }}"
+    group: "{{ deploy_user_name }}"
+
 - name: Set Minio Alias (necessary for the rest of the playbook)
   ansible.builtin.command:
-    cmd: "podman exec shared-minio mc alias set local http://127.0.0.1:9000 {{ minio_secrets.json.data.data.username }} {{ minio_secrets.json.data.data.password }}"
+    cmd: "mc alias set myminio http://127.0.0.1:9000 {{ minio_user }} {{ minio_pass }}"
   changed_when: false
   become: true
   become_user: "{{ deploy_user_name }}"
 
 - name: Create new admin access key for MinIO
   ansible.builtin.command:
-    cmd: "podman exec shared-minio mc admin accesskey create local"
+    cmd: "mc admin accesskey create myminio"
   register: minio_new_key_result
   changed_when: true
   become: true
@@ -106,22 +91,20 @@
   ansible.builtin.set_fact:
     minio_access_key: "{{ minio_new_key_result.stdout | regex_search('Access Key: (\\S+)', '\\1') | first }}"
     minio_secret_key: "{{ minio_new_key_result.stdout | regex_search('Secret Key: (\\S+)', '\\1') | first }}"
-  # no_log: true
+  no_log: true
 
-- name: Store new MinIO access keys in Vault
-  ansible.builtin.uri:
-    url: "https://127.0.0.1:8200/v1/secret/data/minio"
-    validate_certs: false
-    method: POST
-    headers:
-      X-Vault-Token: "{{ vault_root_token }}"
-    body_format: json
-    body:
-      data:
-        username: "{{ minio_user }}"
-        password: "{{ minio_pass }}"
-        access_key: "{{ minio_access_key }}"
-        secret_key: "{{ minio_secret_key }}"
-  # no_log: true
-  become: true
-  become_user: "{{ deploy_user_name }}"
+- name: Store MinIO secrets in Vault
+  community.hashi_vault.vault_kv2_write:
+    url: https://127.0.0.1:8200
+    path: minio
+    token: "{{ vault_token }}"
+    data:
+      MINIO_ROOT_USER: "{{ minio_user }}"
+      MINIO_ROOT_PASSWORD: "{{ minio_pass }}"
+      MINIO_ACCESS_KEY: "{{ minio_access_key }}"
+      MINIO_SECRET_KEY: "{{ minio_secret_key }}"
+
+- name: Restart Vault Agent
+  ansible.builtin.systemd:
+    name: vault
+    state: restarted

@@ -9,6 +9,7 @@ auto_auth {
     config = {
       role_id_file_path = "{{ vault_agent_config_dir }}/role_id"
       secret_id_file_path = "{{ vault_agent_config_dir }}/secret_id"
+      remove_secret_id_file_after_reading = false
     }
   }
 

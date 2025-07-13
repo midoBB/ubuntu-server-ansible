@@ -10,8 +10,13 @@
 
 - name: Restart Vault Agent
   ansible.builtin.systemd:
-    name: vault
+    name: vault-agent
     state: restarted
+
+- name: Wait for Vault Agent to generate PostgreSQL environment file
+  ansible.builtin.wait_for:
+    path: "{{ vault_agent_secrets_dir }}/postgres.env"
+    timeout: 60
 
 - name: Create data directory for PostgreSQL
   ansible.builtin.file:
@@ -40,7 +45,7 @@
 - name: Start PostgreSQL container
   ansible.builtin.systemd:
     name: postgres.service
-    state: started
+    enabled: true
     scope: user
   become: true
   become_user: "{{ deploy_user_name }}"

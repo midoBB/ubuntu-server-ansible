@@ -10,7 +10,7 @@ StopPropagatedFrom=vault-agent.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/vault-approle.sh
-RemainAfterExit=yes
+RemainAfterExit=no
 
 # Security settings
 User=vault
@@ -30,7 +30,6 @@ KillSignal=SIGTERM
 Restart=on-failure
 RestartSec=5
 StartLimitBurst=3
-StartLimitIntervalSec=300
 
 # Logging
 StandardOutput=journal
