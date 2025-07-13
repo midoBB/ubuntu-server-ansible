@@ -20,3 +20,4 @@
     - analytics
     - vault
     - podman_services
+    - backup
