@@ -1,0 +1,12 @@
+{{ backup_log_dir }}/*.log {
+    daily
+    missingok
+    rotate {{ backup_log_max_files }}
+    compress
+    delaycompress
+    notifempty
+    create 0644 {{ backup_user }} {{ backup_group }}
+    postrotate
+        systemctl --user reload backup-logger.service 2>/dev/null || true
+    endscript
+}

@@ -1,0 +1,172 @@
+---
+- name: Install backup packages
+  become: true
+  package:
+    name:
+      - restic
+      - rclone
+    state: present
+
+- name: Create backup system directories
+  become: true
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0755'
+  loop:
+    - "{{ backup_root_dir }}"
+    - "{{ backup_root_dir }}/vault"
+    - "{{ backup_root_dir }}/postgres"
+    - "{{ backup_root_dir }}/minio"
+    - "{{ backup_staging_dir }}"
+    - "{{ backup_config_dir }}"
+    - "{{ backup_log_dir }}"
+
+- name: Create backup configuration directory
+  become: true
+  file:
+    path: "{{ backup_config_dir }}"
+    state: directory
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0700'
+
+- name: Create backup log directory
+  become: true
+  file:
+    path: "{{ backup_log_dir }}"
+    state: directory
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0755'
+
+- name: Create backup service user
+  become: true
+  user:
+    name: "{{ backup_user }}"
+    system: true
+    shell: /bin/bash
+    home: "{{ backup_home_dir }}"
+    create_home: true
+    groups: "{{ backup_user_groups }}"
+    append: true
+  when: backup_create_user | bool
+
+- name: Set up backup log rotation
+  become: true
+  template:
+    src: backup-logrotate.j2
+    dest: /etc/logrotate.d/backup
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Deploy backup scripts
+  become: true
+  template:
+    src: "{{ item }}.sh.j2"
+    dest: "/usr/local/bin/{{ item }}.sh"
+    owner: "{{ backup_user }}"
+    group: "{{ backup_user }}"
+    mode: '0700'
+  loop:
+    - vault-backup
+    - postgres-backup
+    - minio-backup
+    - offsite-backup
+
+- name: Create restic password file
+  become: true
+  copy:
+    content: "{{ restic_password }}"
+    dest: "{{ backup_config_dir }}/restic-password"
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0600'
+  no_log: true
+
+- name: Create vault backup user password file
+  become: true
+  copy:
+    content: "{{ vault_backup_password }}"
+    dest: "{{ backup_config_dir }}/vault-backup-password"
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0600'
+  no_log: true
+
+- name: Configure Vault for backup operations
+  include_tasks: vault.yml
+  when: vault_token is defined
+
+- name: Configure NAS backup destination
+  include_tasks: nas.yml
+  when: nas_ssh_host is defined and nas_ssh_host != 'nas.example.com'
+
+- name: Configure Backblaze backup destination
+  include_tasks: backblaze.yml
+  when: rclone_config is defined and rclone_config != ''
+
+- name: Store backup credentials in Vault
+  uri:
+    url: "{{ vault_addr }}/v1/secret/data/backup"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    body_format: json
+    body:
+      data:
+        restic_password: "{{ restic_password }}"
+        vault_backup_password: "{{ vault_backup_password }}"
+        nas_ssh_private_key: "{{ nas_ssh_private_key }}"
+        rclone_config: "{{ rclone_config }}"
+    status_code: [200, 204]
+  delegate_to: localhost
+  run_once: true
+  no_log: true
+  when: vault_token is defined
+
+- name: Deploy backup systemd services
+  become: true
+  template:
+    src: "{{ item }}.service.j2"
+    dest: "/etc/systemd/system/{{ item }}.service"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - vault-backup
+    - postgres-backup
+    - minio-backup
+    - offsite-backup
+  notify: reload systemd
+
+- name: Deploy backup systemd timers
+  become: true
+  template:
+    src: "{{ item }}.timer.j2"
+    dest: "/etc/systemd/system/{{ item }}.timer"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - vault-backup
+    - postgres-backup
+    - minio-backup
+    - offsite-backup
+  notify: reload systemd
+
+- name: Enable backup timers
+  become: true
+  systemd:
+    name: "{{ item }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - vault-backup
+    - postgres-backup
+    - minio-backup
+    - offsite-backup

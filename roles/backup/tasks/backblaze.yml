@@ -1,0 +1,143 @@
+---
+- name: Create rclone configuration directory
+  file:
+    path: "{{ backup_config_dir }}/rclone"
+    state: directory
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0700'
+  become: true
+
+- name: Create rclone configuration
+  template:
+    src: rclone.conf.j2
+    dest: "{{ backup_config_dir }}/rclone/rclone.conf"
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0600'
+  become: true
+
+- name: Test rclone Backblaze connectivity
+  command: >
+    rclone --config {{ backup_config_dir }}/rclone/rclone.conf
+    lsd bblaze:
+  register: rclone_test_result
+  become: true
+  become_user: "{{ backup_user }}"
+  failed_when: false
+  changed_when: false
+
+- name: Display rclone connectivity test result
+  debug:
+    msg: |
+      Rclone Backblaze connectivity test:
+      {% if rclone_test_result.rc == 0 %}
+      SUCCESS: Backblaze accessible
+      {% else %}
+      FAILED: {{ rclone_test_result.stderr }}
+      Please check:
+      1. Backblaze B2 API credentials are valid
+      2. Account has sufficient permissions
+      3. Network connectivity is available
+      {% endif %}
+
+- name: Create Backblaze backup directory
+  command: >
+    rclone --config {{ backup_config_dir }}/rclone/rclone.conf
+    mkdir bblaze:{{ backblaze_backup_path }}
+  register: backblaze_mkdir_result
+  become: true
+  become_user: "{{ backup_user }}"
+  failed_when: false
+  changed_when: backblaze_mkdir_result.rc == 0
+  when: rclone_test_result.rc == 0
+
+- name: Initialize Restic repository on Backblaze
+  command: >
+    rclone --config {{ backup_config_dir }}/rclone/rclone.conf
+    restic -r {{ restic_repository_backblaze }} init
+  environment:
+    RESTIC_PASSWORD_FILE: "{{ backup_config_dir }}/restic-password"
+    RCLONE_CONFIG: "{{ backup_config_dir }}/rclone/rclone.conf"
+  register: restic_backblaze_init_result
+  become: true
+  become_user: "{{ backup_user }}"
+  failed_when: false
+  changed_when: restic_backblaze_init_result.rc == 0
+  when: rclone_test_result.rc == 0
+
+- name: Display Restic Backblaze repository initialization result
+  debug:
+    msg: |
+      Restic Backblaze repository initialization:
+      {% if restic_backblaze_init_result.rc == 0 %}
+      SUCCESS: Repository initialized at {{ restic_repository_backblaze }}
+      {% elif restic_backblaze_init_result.rc == 1 and 'already initialized' in restic_backblaze_init_result.stderr %}
+      INFO: Repository already initialized at {{ restic_repository_backblaze }}
+      {% else %}
+      FAILED: {{ restic_backblaze_init_result.stderr }}
+      {% endif %}
+  when: rclone_test_result.rc == 0
+
+- name: Test Restic Backblaze repository connectivity
+  command: >
+    restic -r {{ restic_repository_backblaze }} snapshots
+  environment:
+    RESTIC_PASSWORD_FILE: "{{ backup_config_dir }}/restic-password"
+    RCLONE_CONFIG: "{{ backup_config_dir }}/rclone/rclone.conf"
+  register: restic_backblaze_test_result
+  become: true
+  become_user: "{{ backup_user }}"
+  failed_when: false
+  changed_when: false
+  when: rclone_test_result.rc == 0
+
+- name: Display Restic Backblaze repository test result
+  debug:
+    msg: |
+      Restic Backblaze repository test:
+      {% if restic_backblaze_test_result.rc == 0 %}
+      SUCCESS: Repository accessible at {{ restic_repository_backblaze }}
+      {% else %}
+      FAILED: {{ restic_backblaze_test_result.stderr }}
+      {% endif %}
+  when: rclone_test_result.rc == 0
+
+
+- name: Create encryption key backup to Backblaze
+  when: rclone_test_result.rc == 0
+  block:
+    - name: Create encryption key backup directory
+      file:
+        path: "{{ backup_config_dir }}/key-backup"
+        state: directory
+        owner: "{{ backup_user }}"
+        group: "{{ backup_group }}"
+        mode: '0700'
+      become: true
+
+    - name: Create encryption key backup archive
+      archive:
+        path:
+          - "{{ backup_config_dir }}/restic-password"
+          - "{{ backup_config_dir }}/rclone/rclone.conf"
+        dest: "{{ backup_config_dir }}/key-backup/backup-keys-{{ ansible_date_time.epoch }}.tar.gz"
+        owner: "{{ backup_user }}"
+        group: "{{ backup_group }}"
+        mode: '0600'
+      become: true
+
+    - name: Upload encryption key backup to Backblaze
+      command: >
+        rclone --config {{ backup_config_dir }}/rclone/rclone.conf
+        copy {{ backup_config_dir }}/key-backup/backup-keys-{{ ansible_date_time.epoch }}.tar.gz
+        bblaze:{{ backblaze_backup_path }}/keys/
+      become: true
+      become_user: "{{ backup_user }}"
+      when: rclone_test_result.rc == 0
+
+    - name: Remove local encryption key backup
+      file:
+        path: "{{ backup_config_dir }}/key-backup/backup-keys-{{ ansible_date_time.epoch }}.tar.gz"
+        state: absent
+      become: true

@@ -1,0 +1,11 @@
+[Unit]
+Description=MinIO Backup Timer
+Requires=minio-backup.service
+
+[Timer]
+OnCalendar=*-*-* {{ backup_schedule.minio }}:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

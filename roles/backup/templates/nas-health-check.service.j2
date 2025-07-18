@@ -1,0 +1,25 @@
+[Unit]
+Description=NAS Health Check Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ backup_user }}
+Group={{ backup_group }}
+Environment=RESTIC_PASSWORD_FILE={{ backup_config_dir }}/restic-password
+ExecStart=/usr/local/bin/nas-health-check.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nas-health-check
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ backup_config_dir }}
+ReadWritePaths={{ backup_log_dir }}
+
+[Install]
+WantedBy=multi-user.target

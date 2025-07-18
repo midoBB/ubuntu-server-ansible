@@ -1,0 +1,15 @@
+Host {{ nas_ssh_host }}
+    HostName {{ nas_ssh_host }}
+    Port {{ nas_ssh_port }}
+    User {{ nas_ssh_user }}
+    IdentityFile {{ backup_home_dir }}/.ssh/id_ed25519_backup
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    TCPKeepAlive yes
+    # Bandwidth limiting for SFTP
+    ControlMaster auto
+    ControlPath {{ backup_home_dir }}/.ssh/control-%r@%h:%p
+    ControlPersist 600

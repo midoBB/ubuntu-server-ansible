@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+#
+# MinIO Backup Script
+# Performs incremental MinIO backups using mc mirror with bandwidth limiting
+#
+
+set -euo pipefail
+
+# Configuration
+BACKUP_DIR="{{ backup_root_dir }}/minio"
+STAGING_DIR="{{ backup_staging_dir }}/minio"
+LOG_FILE="{{ backup_log_dir }}/minio-backup.log"
+CONTAINER_NAME="shared-minio"
+RESTIC_REPOSITORY="${RESTIC_REPOSITORY:-{{ restic_repository_nas }}}"
+RESTIC_PASSWORD_FILE="${RESTIC_PASSWORD_FILE:-{{ backup_config_dir }}/restic-password}"
+
+# MinIO configuration
+MINIO_ENDPOINT="http://127.0.0.1:9000"
+MINIO_ALIAS="backup-local"
+MINIO_ACCESS_KEY="{{ minio_user }}"
+MINIO_SECRET_KEY="{{ minio_pass }}"
+
+# MC client configuration
+MC_CONFIG_DIR="{{ backup_config_dir }}/mc"
+MC_BANDWIDTH_LIMIT="{{ backup_bandwidth_limit }}"
+
+# Backup settings
+BACKUP_RETENTION_DAYS={{ backup_retention.daily }}
+BACKUP_ARCHIVE_NAME="minio_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+
+# Exclusion patterns
+EXCLUSION_PATTERNS=(
+    "*.tmp"
+    "*.temp"
+    "*/.DS_Store"
+    "*/Thumbs.db"
+    "*/.git/*"
+    "*/node_modules/*"
+    "*/__pycache__/*"
+    "*.log"
+    "*.cache"
+)
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [minio-backup] $1" | tee -a "$LOG_FILE"
+}
+
+# Error handler
+error_exit() {
+    log "ERROR: $1"
+    exit 1
+}
+
+# Check MinIO container health
+check_minio_health() {
+    log "Checking MinIO container health..."
+
+    # Check if container is running
+    if ! podman ps --format "{{.Names}}" | grep -q "^$CONTAINER_NAME$"; then
+        error_exit "MinIO container $CONTAINER_NAME is not running"
+    fi
+
+    # Check MinIO health endpoint
+    if ! curl -f "$MINIO_ENDPOINT/minio/health/live" >/dev/null 2>&1; then
+        error_exit "MinIO health check failed"
+    fi
+
+    log "MinIO health check passed"
+}
+
+# Setup MC client configuration
+setup_mc_config() {
+    log "Setting up MC client configuration..."
+
+    # Create MC config directory
+    mkdir -p "$MC_CONFIG_DIR"
+
+    # Configure MC to use our config directory
+    export MC_CONFIG_DIR="$MC_CONFIG_DIR"
+
+    # Set bandwidth limit if specified
+    if [ -n "$MC_BANDWIDTH_LIMIT" ]; then
+        log "Setting bandwidth limit to: $MC_BANDWIDTH_LIMIT"
+        mc config set --config-dir="$MC_CONFIG_DIR" --host="$MINIO_ALIAS" --bandwidth="$MC_BANDWIDTH_LIMIT"
+    fi
+
+    log "MC client configuration completed"
+}
+
+# Configure MC alias for local MinIO
+configure_mc_alias() {
+    log "Configuring MC alias for local MinIO..."
+
+    # Remove existing alias if present
+    mc alias remove "$MINIO_ALIAS" --config-dir="$MC_CONFIG_DIR" 2>/dev/null || true
+
+    # Set new alias
+    if ! mc alias set "$MINIO_ALIAS" "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" --config-dir="$MC_CONFIG_DIR"; then
+        error_exit "Failed to configure MC alias for MinIO"
+    fi
+
+    # Test connection
+    if ! mc admin info "$MINIO_ALIAS" --config-dir="$MC_CONFIG_DIR" >/dev/null 2>&1; then
+        error_exit "Failed to connect to MinIO using MC client"
+    fi
+
+    log "MC alias configured successfully"
+}
+
+# Get list of buckets
+get_buckets() {
+    log "Retrieving bucket list..."
+
+    local buckets
+    buckets=$(mc ls "$MINIO_ALIAS" --config-dir="$MC_CONFIG_DIR" 2>/dev/null | awk '{print $5}' | grep -v "^$" || true)
+
+    if [ -z "$buckets" ]; then
+        log "No buckets found in MinIO"
+        return 0
+    fi
+
+    log "Found buckets: $(echo "$buckets" | tr '\n' ' ')"
+    echo "$buckets"
+}
+
+# Setup directories
+setup_directories() {
+    log "Setting up backup directories..."
+
+    mkdir -p "$BACKUP_DIR"
+    mkdir -p "$STAGING_DIR"
+
+    # Clean old staging files
+    find "$STAGING_DIR" -type f -name "*.tar.gz" -mtime +1 -delete 2>/dev/null || true
+    find "$STAGING_DIR" -type d -empty -delete 2>/dev/null || true
+
+    log "Directories prepared"
+}
+
+# Build exclusion arguments for MC
+build_exclusion_args() {
+    local exclude_args=""
+
+    for pattern in "${EXCLUSION_PATTERNS[@]}"; do
+        exclude_args="$exclude_args --exclude '$pattern'"
+    done
+
+    echo "$exclude_args"
+}
+
+# Perform incremental backup for a bucket
+backup_bucket() {
+    local bucket="$1"
+    local bucket_staging_dir="$STAGING_DIR/$bucket"
+    local exclude_args
+
+    log "Starting backup for bucket: $bucket"
+
+    # Create staging directory for bucket
+    mkdir -p "$bucket_staging_dir"
+
+    # Build exclusion arguments
+    exclude_args=$(build_exclusion_args)
+
+    # Perform incremental mirror sync
+    log "Syncing bucket $bucket with incremental mirror..."
+
+    # Use eval to properly handle exclusion arguments
+    local sync_cmd="mc mirror $exclude_args --preserve --overwrite --remove --config-dir='$MC_CONFIG_DIR' '$MINIO_ALIAS/$bucket' '$bucket_staging_dir'"
+
+    if ! eval "$sync_cmd" 2>/dev/null; then
+        error_exit "Failed to mirror bucket: $bucket"
+    fi
+
+    # Count objects in staging directory
+    local object_count
+    object_count=$(find "$bucket_staging_dir" -type f | wc -l)
+    log "Mirrored $object_count objects from bucket: $bucket"
+
+    echo "$object_count"
+}
+
+# Verify object count
+verify_object_count() {
+    local bucket="$1"
+    local expected_count="$2"
+    local bucket_staging_dir="$STAGING_DIR/$bucket"
+
+    log "Verifying object count for bucket: $bucket"
+
+    # Count objects in MinIO bucket
+    local minio_count
+    minio_count=$(mc ls --recursive "$MINIO_ALIAS/$bucket" --config-dir="$MC_CONFIG_DIR" 2>/dev/null | wc -l || echo "0")
+
+    # Count objects in staging directory
+    local staging_count
+    staging_count=$(find "$bucket_staging_dir" -type f | wc -l 2>/dev/null || echo "0")
+
+    log "Object count verification - MinIO: $minio_count, Staging: $staging_count, Expected: $expected_count"
+
+    # Allow for small differences due to timing
+    local diff
+    diff=$((minio_count - staging_count))
+    if [ "${diff#-}" -gt 5 ]; then  # Absolute difference greater than 5
+        log "WARNING: Object count mismatch for bucket $bucket (MinIO: $minio_count, Staging: $staging_count)"
+    else
+        log "Object count verification passed for bucket: $bucket"
+    fi
+}
+
+# Create compressed archive
+create_archive() {
+    local archive_path="$STAGING_DIR/$BACKUP_ARCHIVE_NAME"
+
+    log "Creating compressed archive: $BACKUP_ARCHIVE_NAME"
+
+    # Create tar.gz archive with metadata preservation
+    if ! tar -czf "$archive_path" -C "$STAGING_DIR" --exclude="$BACKUP_ARCHIVE_NAME" . 2>/dev/null; then
+        error_exit "Failed to create compressed archive"
+    fi
+
+    # Verify archive was created
+    if [ ! -f "$archive_path" ] || [ ! -s "$archive_path" ]; then
+        error_exit "Archive file is empty or missing"
+    fi
+
+    # Calculate archive size
+    local archive_size
+    archive_size=$(stat -c%s "$archive_path" 2>/dev/null || echo "0")
+    log "Archive created successfully: $BACKUP_ARCHIVE_NAME (${archive_size} bytes)"
+
+    echo "$archive_path"
+}
+
+# Upload to restic repository
+upload_to_restic() {
+    local archive_path="$1"
+
+    log "Uploading MinIO backup to restic repository..."
+
+    # Verify restic repository exists
+    if ! restic -r "$RESTIC_REPOSITORY" snapshots >/dev/null 2>&1; then
+        log "Initializing restic repository..."
+        if ! restic -r "$RESTIC_REPOSITORY" init; then
+            error_exit "Failed to initialize restic repository"
+        fi
+    fi
+
+    # Create backup with metadata
+    if ! restic -r "$RESTIC_REPOSITORY" backup "$archive_path" \
+        --tag minio \
+        --tag "$(date '+%Y-%m-%d')" \
+        --host "$(hostname)" \
+        --time "$(date -Iseconds)"; then
+        error_exit "Failed to upload MinIO backup to restic repository"
+    fi
+
+    log "MinIO backup uploaded to restic repository successfully"
+}
+
+# Cleanup old local backups
+cleanup_old_backups() {
+    log "Cleaning up old local backups..."
+
+    # Remove old archives
+    find "$BACKUP_DIR" -name "minio_backup_*.tar.gz" -mtime +$BACKUP_RETENTION_DAYS -delete 2>/dev/null || true
+    find "$STAGING_DIR" -name "minio_backup_*.tar.gz" -mtime +1 -delete 2>/dev/null || true
+
+    # Remove old staging directories
+    find "$STAGING_DIR" -type d -name "*" -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+
+    log "Old backup cleanup completed"
+}
+
+# Verify backup in restic
+verify_backup() {
+    log "Verifying MinIO backup in restic repository..."
+
+    # Check latest snapshot
+    local latest_snapshot
+    latest_snapshot=$(restic -r "$RESTIC_REPOSITORY" snapshots --tag minio --last 1 --json 2>/dev/null | jq -r '.[0].short_id // empty')
+
+    if [ -z "$latest_snapshot" ]; then
+        error_exit "No MinIO backup found in restic repository"
+    fi
+
+    # Verify snapshot integrity
+    if ! restic -r "$RESTIC_REPOSITORY" check --read-data "$latest_snapshot" >/dev/null 2>&1; then
+        error_exit "MinIO backup verification failed in restic repository"
+    fi
+
+    log "MinIO backup verification passed (snapshot: $latest_snapshot)"
+}
+
+# Main backup process
+main() {
+    log "Starting MinIO backup process..."
+
+    # Pre-backup checks
+    check_minio_health
+    setup_directories
+    setup_mc_config
+    configure_mc_alias
+
+    # Get buckets to backup
+    local buckets
+    buckets=$(get_buckets)
+
+    if [ -z "$buckets" ]; then
+        log "No buckets to backup, creating empty archive"
+        touch "$STAGING_DIR/no-buckets.txt"
+    else
+        # Backup each bucket
+        local total_objects=0
+        for bucket in $buckets; do
+            local bucket_objects
+            bucket_objects=$(backup_bucket "$bucket")
+            verify_object_count "$bucket" "$bucket_objects"
+            total_objects=$((total_objects + bucket_objects))
+        done
+
+        log "Total objects backed up: $total_objects"
+    fi
+
+    # Create archive and upload
+    local archive_path
+    archive_path=$(create_archive)
+    upload_to_restic "$archive_path"
+
+    # Post-backup tasks
+    verify_backup
+    cleanup_old_backups
+
+    log "MinIO backup completed successfully"
+}
+
+# Execute main function
+main "$@"

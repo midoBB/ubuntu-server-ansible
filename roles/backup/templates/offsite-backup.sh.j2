@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+#
+# Offsite Backup Script
+# Synchronizes local backups to offsite repositories (NAS and Backblaze B2)
+#
+
+set -euo pipefail
+
+# Configuration
+BACKUP_DIR="{{ backup_root_dir }}"
+LOG_FILE="{{ backup_log_dir }}/offsite-backup.log"
+RESTIC_PASSWORD_FILE="{{ backup_config_dir }}/restic-password"
+RCLONE_CONFIG="{{ backup_config_dir }}/rclone/rclone.conf"
+
+# Repository configurations
+NAS_REPOSITORY="{{ restic_repository_nas }}"
+BACKBLAZE_REPOSITORY="{{ restic_repository_backblaze }}"
+
+# Backup retention
+RETENTION_DAILY={{ backup_retention.daily }}
+RETENTION_MONTHLY={{ backup_retention.monthly }}
+RETENTION_YEARLY={{ backup_retention.yearly }}
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [offsite-backup] $1" | tee -a "$LOG_FILE"
+}
+
+# Error handler
+error_exit() {
+    log "ERROR: $1"
+    exit 1
+}
+
+# Check if local backups exist
+check_local_backups() {
+    log "Checking for local backups..."
+    
+    local backup_found=false
+    
+    # Check for vault backups
+    if find "$BACKUP_DIR/vault" -name "vault_snapshot_*.snap" -mtime -1 2>/dev/null | grep -q .; then
+        log "Found recent Vault backups"
+        backup_found=true
+    fi
+    
+    # Check for postgres backups
+    if find "$BACKUP_DIR/postgres" -name "*.sql.gz" -mtime -1 2>/dev/null | grep -q .; then
+        log "Found recent PostgreSQL backups"
+        backup_found=true
+    fi
+    
+    # Check for minio backups
+    if find "$BACKUP_DIR/minio" -name "minio_backup_*.tar.gz" -mtime -1 2>/dev/null | grep -q .; then
+        log "Found recent MinIO backups"
+        backup_found=true
+    fi
+    
+    if [ "$backup_found" = false ]; then
+        error_exit "No recent local backups found to sync"
+    fi
+    
+    log "Local backup check passed"
+}
+
+# Initialize repository if needed
+init_repository() {
+    local repository="$1"
+    local repo_name="$2"
+    
+    log "Checking $repo_name repository initialization..."
+    
+    if ! restic -r "$repository" snapshots >/dev/null 2>&1; then
+        log "Initializing $repo_name repository..."
+        if ! restic -r "$repository" init; then
+            error_exit "Failed to initialize $repo_name repository"
+        fi
+        log "$repo_name repository initialized successfully"
+    else
+        log "$repo_name repository already initialized"
+    fi
+}
+
+# Backup to repository
+backup_to_repository() {
+    local repository="$1"
+    local repo_name="$2"
+    
+    log "Starting backup to $repo_name..."
+    
+    # Create backup with all local backup directories
+    if ! restic -r "$repository" backup \
+        "$BACKUP_DIR/vault" \
+        "$BACKUP_DIR/postgres" \
+        "$BACKUP_DIR/minio" \
+        --tag offsite \
+        --tag "$(date '+%Y-%m-%d')" \
+        --host "$(hostname)" \
+        --exclude-file /dev/null; then
+        error_exit "Failed to backup to $repo_name"
+    fi
+    
+    log "Backup to $repo_name completed successfully"
+}
+
+# Prune old snapshots
+prune_repository() {
+    local repository="$1"
+    local repo_name="$2"
+    
+    log "Pruning old snapshots in $repo_name..."
+    
+    if ! restic -r "$repository" forget \
+        --keep-daily "$RETENTION_DAILY" \
+        --keep-monthly "$RETENTION_MONTHLY" \
+        --keep-yearly "$RETENTION_YEARLY" \
+        --prune; then
+        log "WARNING: Failed to prune $repo_name repository"
+    else
+        log "Pruning completed for $repo_name"
+    fi
+}
+
+# Verify backup integrity
+verify_repository() {
+    local repository="$1"
+    local repo_name="$2"
+    
+    log "Verifying $repo_name repository integrity..."
+    
+    # Check latest snapshot
+    local latest_snapshot
+    latest_snapshot=$(restic -r "$repository" snapshots --tag offsite --last 1 --json 2>/dev/null | jq -r '.[0].short_id // empty')
+    
+    if [ -z "$latest_snapshot" ]; then
+        error_exit "No offsite backup found in $repo_name repository"
+    fi
+    
+    # Basic integrity check
+    if ! restic -r "$repository" check --read-data-subset=10% "$latest_snapshot" >/dev/null 2>&1; then
+        error_exit "Integrity check failed for $repo_name repository"
+    fi
+    
+    log "$repo_name repository verification passed (snapshot: $latest_snapshot)"
+}
+
+# Get backup statistics
+get_backup_stats() {
+    local repository="$1"
+    local repo_name="$2"
+    
+    log "Getting backup statistics for $repo_name..."
+    
+    # Get repository stats
+    local stats
+    if stats=$(restic -r "$repository" stats --json 2>/dev/null); then
+        local total_size snapshot_count
+        total_size=$(echo "$stats" | jq -r '.total_size // 0')
+        snapshot_count=$(echo "$stats" | jq -r '.snapshots_count // 0')
+        
+        log "$repo_name statistics - Size: $(numfmt --to=iec "$total_size"), Snapshots: $snapshot_count"
+    else
+        log "Failed to retrieve statistics for $repo_name"
+    fi
+}
+
+# Sync to NAS repository
+sync_to_nas() {
+    if [ -z "${NAS_REPOSITORY:-}" ]; then
+        log "NAS repository not configured, skipping..."
+        return 0
+    fi
+    
+    log "Syncing to NAS repository..."
+    
+    init_repository "$NAS_REPOSITORY" "NAS"
+    backup_to_repository "$NAS_REPOSITORY" "NAS"
+    verify_repository "$NAS_REPOSITORY" "NAS"
+    get_backup_stats "$NAS_REPOSITORY" "NAS"
+    prune_repository "$NAS_REPOSITORY" "NAS"
+}
+
+# Sync to Backblaze repository
+sync_to_backblaze() {
+    if [ -z "${BACKBLAZE_REPOSITORY:-}" ]; then
+        log "Backblaze repository not configured, skipping..."
+        return 0
+    fi
+    
+    log "Syncing to Backblaze repository..."
+    
+    # Set rclone config for this session
+    export RCLONE_CONFIG="$RCLONE_CONFIG"
+    
+    init_repository "$BACKBLAZE_REPOSITORY" "Backblaze"
+    backup_to_repository "$BACKBLAZE_REPOSITORY" "Backblaze"
+    verify_repository "$BACKBLAZE_REPOSITORY" "Backblaze"
+    get_backup_stats "$BACKBLAZE_REPOSITORY" "Backblaze"
+    prune_repository "$BACKBLAZE_REPOSITORY" "Backblaze"
+}
+
+# Main offsite backup process
+main() {
+    log "Starting offsite backup process..."
+    
+    # Set restic password
+    export RESTIC_PASSWORD_FILE="$RESTIC_PASSWORD_FILE"
+    
+    # Pre-backup checks
+    check_local_backups
+    
+    # Sync to all configured repositories
+    local sync_success=true
+    
+    # Sync to NAS
+    if ! sync_to_nas; then
+        log "WARNING: NAS sync failed"
+        sync_success=false
+    fi
+    
+    # Sync to Backblaze
+    if ! sync_to_backblaze; then
+        log "WARNING: Backblaze sync failed"
+        sync_success=false
+    fi
+    
+    if [ "$sync_success" = true ]; then
+        log "Offsite backup completed successfully"
+    else
+        log "Offsite backup completed with warnings"
+        exit 1
+    fi
+}
+
+# Execute main function
+main "$@"

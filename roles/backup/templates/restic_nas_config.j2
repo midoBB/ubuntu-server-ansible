@@ -1,0 +1,22 @@
+# Restic NAS Configuration
+# This file contains configuration for NAS backups
+
+# Repository configuration
+RESTIC_REPOSITORY={{ restic_repository_nas }}
+RESTIC_PASSWORD_FILE={{ backup_config_dir }}/restic-password
+
+# Bandwidth limiting (in KB/s)
+RESTIC_LIMIT_UPLOAD={{ backup_bandwidth_limit_kb }}
+RESTIC_LIMIT_DOWNLOAD={{ backup_bandwidth_limit_kb }}
+
+# Connection settings
+RESTIC_TIMEOUT=300
+RESTIC_RETRY_LIMIT=3
+
+# Backup settings
+RESTIC_COMPRESSION=auto
+RESTIC_PACK_SIZE=64
+RESTIC_CACHE_DIR={{ backup_config_dir }}/restic-cache
+
+# SSH settings for SFTP
+export RESTIC_SFTP_COMMAND="ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i {{ backup_home_dir }}/.ssh/id_ed25519_backup"

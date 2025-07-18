@@ -1,0 +1,72 @@
+---
+- name: Login to Vault and save token
+  community.hashi_vault.vault_login:
+    url: "https://127.0.0.1:8200"
+    auth_method: userpass
+    username: "{{ vault_admin_username }}"
+    password: "{{ vault_admin_password }}"
+  register: vault_login_result
+
+- name: Set Vault token as fact
+  ansible.builtin.set_fact:
+    vault_token: "{{ vault_login_result.login.auth.client_token }}"
+- name: Create backup user in Vault
+  uri:
+    url: "{{ vault_addr }}/v1/auth/userpass/users/backup"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    body_format: json
+    body:
+      password: "{{ vault_backup_password }}"
+      policies: "backup-policy"
+    status_code: [200, 204]
+  delegate_to: localhost
+  run_once: true
+  no_log: true
+
+- name: Create backup policy in Vault
+  uri:
+    url: "{{ vault_addr }}/v1/sys/policies/acl/backup-policy"
+    method: PUT
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    body_format: json
+    body:
+      policy: |
+        # Allow backup user to read backup secrets
+        path "secret/data/backup" {
+          capabilities = ["read"]
+        }
+
+        # Allow backup user to read database credentials
+        path "secret/data/postgres" {
+          capabilities = ["read"]
+        }
+
+        # Allow backup user to read minio credentials
+        path "secret/data/minio" {
+          capabilities = ["read"]
+        }
+
+        # Allow backup user to read its own metadata
+        path "auth/userpass/users/backup" {
+          capabilities = ["read"]
+        }
+    status_code: [200, 204]
+  delegate_to: localhost
+  run_once: true
+
+- name: Enable userpass auth method if not already enabled
+  uri:
+    url: "{{ vault_addr }}/v1/sys/auth/userpass"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    body_format: json
+    body:
+      type: "userpass"
+    status_code: [200, 204, 400]  # 400 if already enabled
+  delegate_to: localhost
+  run_once: true
+  ignore_errors: true

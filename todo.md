@@ -8,3 +8,6 @@
 - [ ] Set up monitoring (Grafana, Prometheus, Alertmanager, Loki, Blackbox Exporter)
 - [ ] Set up a website deployments
 - [ ] Set up a webhook for getting updates from CI/CD
+  > [!NOTE]
+  > Checkout [Unregistry](https://github.com/psviderski/unregistry) for handling
+  > new image versions for things needed to update

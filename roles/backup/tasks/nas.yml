@@ -1,0 +1,201 @@
+---
+- name: Generate SSH key for NAS backup access
+  user:
+    name: "{{ backup_user }}"
+    generate_ssh_key: yes
+    ssh_key_type: ed25519
+    ssh_key_comment: "backup@{{ inventory_hostname }}"
+    ssh_key_file: ".ssh/id_ed25519_backup"
+  become: true
+  register: backup_ssh_key
+
+- name: Read SSH public key
+  slurp:
+    src: "{{ backup_home_dir }}/.ssh/id_ed25519_backup.pub"
+  register: backup_ssh_public_key
+  become: true
+
+- name: Display SSH public key for NAS configuration
+  debug:
+    msg: |
+      SSH public key for NAS backup user configuration:
+      {{ backup_ssh_public_key.content | b64decode | trim }}
+      
+      Please add this key to the authorized_keys file for user {{ nas_ssh_user }} on {{ nas_ssh_host }}
+
+- name: Create SSH config for NAS backup
+  template:
+    src: ssh_config_nas.j2
+    dest: "{{ backup_home_dir }}/.ssh/config"
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0600'
+  become: true
+
+- name: Test SSH connectivity to NAS
+  command: >
+    ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no 
+    -i {{ backup_home_dir }}/.ssh/id_ed25519_backup 
+    {{ nas_ssh_user }}@{{ nas_ssh_host }} 
+    "echo 'SSH connection test successful'"
+  register: ssh_test_result
+  become: true
+  become_user: "{{ backup_user }}"
+  failed_when: false
+  changed_when: false
+
+- name: Display SSH connectivity test result
+  debug:
+    msg: |
+      SSH connectivity test result:
+      {% if ssh_test_result.rc == 0 %}
+      SUCCESS: {{ ssh_test_result.stdout }}
+      {% else %}
+      FAILED: {{ ssh_test_result.stderr }}
+      Please ensure:
+      1. SSH public key is added to {{ nas_ssh_user }}@{{ nas_ssh_host }}
+      2. NAS is accessible via Tailscale network
+      3. SSH service is running on NAS
+      {% endif %}
+
+- name: Create NAS backup directory
+  command: >
+    ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no 
+    -i {{ backup_home_dir }}/.ssh/id_ed25519_backup 
+    {{ nas_ssh_user }}@{{ nas_ssh_host }} 
+    "mkdir -p {{ nas_backup_path }}"
+  register: nas_mkdir_result
+  become: true
+  become_user: "{{ backup_user }}"
+  when: ssh_test_result.rc == 0
+
+- name: Initialize Restic repository on NAS
+  command: >
+    restic -r {{ restic_repository_nas }} init
+  environment:
+    RESTIC_PASSWORD_FILE: "{{ backup_config_dir }}/restic-password"
+  register: restic_init_result
+  become: true
+  become_user: "{{ backup_user }}"
+  failed_when: false
+  changed_when: restic_init_result.rc == 0
+  when: ssh_test_result.rc == 0
+
+- name: Display Restic repository initialization result
+  debug:
+    msg: |
+      Restic repository initialization result:
+      {% if restic_init_result.rc == 0 %}
+      SUCCESS: Repository initialized at {{ restic_repository_nas }}
+      {% elif restic_init_result.rc == 1 and 'already initialized' in restic_init_result.stderr %}
+      INFO: Repository already initialized at {{ restic_repository_nas }}
+      {% else %}
+      FAILED: {{ restic_init_result.stderr }}
+      {% endif %}
+  when: ssh_test_result.rc == 0
+
+- name: Test Restic repository connectivity
+  command: >
+    restic -r {{ restic_repository_nas }} snapshots
+  environment:
+    RESTIC_PASSWORD_FILE: "{{ backup_config_dir }}/restic-password"
+  register: restic_test_result
+  become: true
+  become_user: "{{ backup_user }}"
+  failed_when: false
+  changed_when: false
+  when: ssh_test_result.rc == 0
+
+- name: Display Restic repository test result
+  debug:
+    msg: |
+      Restic repository connectivity test:
+      {% if restic_test_result.rc == 0 %}
+      SUCCESS: Repository accessible at {{ restic_repository_nas }}
+      {% else %}
+      FAILED: {{ restic_test_result.stderr }}
+      {% endif %}
+  when: ssh_test_result.rc == 0
+
+- name: Configure Tailscale for NAS access
+  block:
+    - name: Check Tailscale status
+      command: tailscale status
+      register: tailscale_status
+      become: true
+      changed_when: false
+      failed_when: false
+
+    - name: Display Tailscale status
+      debug:
+        msg: |
+          Tailscale status:
+          {% if tailscale_status.rc == 0 %}
+          {{ tailscale_status.stdout }}
+          {% else %}
+          Tailscale not running or not authenticated
+          {% endif %}
+
+    - name: Check if NAS is reachable via Tailscale
+      command: ping -c 3 {{ nas_ssh_host }}
+      register: nas_ping_result
+      become: true
+      changed_when: false
+      failed_when: false
+
+    - name: Display NAS connectivity result
+      debug:
+        msg: |
+          NAS connectivity test:
+          {% if nas_ping_result.rc == 0 %}
+          SUCCESS: NAS {{ nas_ssh_host }} is reachable
+          {% else %}
+          FAILED: NAS {{ nas_ssh_host }} is not reachable
+          Please check Tailscale configuration and NAS connectivity
+          {% endif %}
+
+- name: Configure bandwidth limiting for NAS backups
+  template:
+    src: restic_nas_config.j2
+    dest: "{{ backup_config_dir }}/restic-nas.conf"
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    mode: '0600'
+  become: true
+
+- name: Create NAS backup health check script
+  template:
+    src: nas-health-check.sh.j2
+    dest: "/usr/local/bin/nas-health-check.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create systemd service for NAS health monitoring
+  template:
+    src: nas-health-check.service.j2
+    dest: /etc/systemd/system/nas-health-check.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: reload systemd
+
+- name: Create systemd timer for NAS health monitoring
+  template:
+    src: nas-health-check.timer.j2
+    dest: /etc/systemd/system/nas-health-check.timer
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: reload systemd
+
+- name: Enable and start NAS health check timer
+  systemd:
+    name: nas-health-check.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true

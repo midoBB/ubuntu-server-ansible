@@ -1,0 +1,11 @@
+[Unit]
+Description=NAS Health Check Timer
+Requires=nas-health-check.service
+
+[Timer]
+OnCalendar=*:0/30  # Every 30 minutes
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+#
+# NAS Health Check Script
+# Monitors NAS connectivity and repository health
+#
+
+set -euo pipefail
+
+# Configuration
+LOG_FILE="{{ backup_log_dir }}/nas-health-check.log"
+NAS_HOST="{{ nas_ssh_host }}"
+NAS_USER="{{ nas_ssh_user }}"
+SSH_KEY="{{ backup_home_dir }}/.ssh/id_ed25519_backup"
+RESTIC_REPOSITORY="{{ restic_repository_nas }}"
+RESTIC_PASSWORD_FILE="{{ backup_config_dir }}/restic-password"
+
+# Health check timeouts
+PING_TIMEOUT=5
+SSH_TIMEOUT=10
+RESTIC_TIMEOUT=30
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [nas-health-check] $1" | tee -a "$LOG_FILE"
+}
+
+# Check network connectivity
+check_network_connectivity() {
+    log "Checking network connectivity to NAS..."
+
+    if ping -c 3 -W "$PING_TIMEOUT" "$NAS_HOST" >/dev/null 2>&1; then
+        log "Network connectivity to NAS: OK"
+        return 0
+    else
+        log "Network connectivity to NAS: FAILED"
+        return 1
+    fi
+}
+
+# Check SSH connectivity
+check_ssh_connectivity() {
+    log "Checking SSH connectivity to NAS..."
+
+    if ssh -o ConnectTimeout="$SSH_TIMEOUT" -o StrictHostKeyChecking=no \
+        -i "$SSH_KEY" "$NAS_USER@$NAS_HOST" "echo 'SSH test successful'" >/dev/null 2>&1; then
+        log "SSH connectivity to NAS: OK"
+        return 0
+    else
+        log "SSH connectivity to NAS: FAILED"
+        return 1
+    fi
+}
+
+# Check Tailscale status
+check_tailscale() {
+    log "Checking Tailscale status..."
+
+    if tailscale status >/dev/null 2>&1; then
+        local tailscale_status
+        tailscale_status=$(tailscale status | head -1)
+        log "Tailscale status: $tailscale_status"
+        return 0
+    else
+        log "Tailscale status: NOT RUNNING"
+        return 1
+    fi
+}
+
+# Check Restic repository
+check_restic_repository() {
+    log "Checking Restic repository health..."
+
+    # Set timeout for restic operations
+    export RESTIC_TIMEOUT="$RESTIC_TIMEOUT"
+
+    # Check if repository is accessible
+    if timeout "$RESTIC_TIMEOUT" restic -r "$RESTIC_REPOSITORY" snapshots >/dev/null 2>&1; then
+        log "Restic repository accessibility: OK"
+
+        # Check repository integrity
+        if timeout "$RESTIC_TIMEOUT" restic -r "$RESTIC_REPOSITORY" check --read-data-subset=1% >/dev/null 2>&1; then
+            log "Restic repository integrity: OK"
+            return 0
+        else
+            log "Restic repository integrity: FAILED"
+            return 1
+        fi
+    else
+        log "Restic repository accessibility: FAILED"
+        return 1
+    fi
+}
+
+# Check available space on NAS
+check_nas_space() {
+    log "Checking available space on NAS..."
+
+    local space_info
+    if space_info=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" -o StrictHostKeyChecking=no \
+        -i "$SSH_KEY" "$NAS_USER@$NAS_HOST" "df -h {{ nas_backup_path }}" 2>/dev/null); then
+        log "NAS space information:"
+        echo "$space_info" | while read -r line; do
+            log "  $line"
+        done
+        return 0
+    else
+        log "Failed to check NAS space"
+        return 1
+    fi
+}
+
+# Get backup statistics
+get_backup_stats() {
+    log "Getting backup statistics..."
+
+    # Get snapshot count
+    local snapshot_count
+    if snapshot_count=$(timeout "$RESTIC_TIMEOUT" restic -r "$RESTIC_REPOSITORY" snapshots --json 2>/dev/null | jq length); then
+        log "Total snapshots: $snapshot_count"
+    else
+        log "Failed to get snapshot count"
+        return 1
+    fi
+
+    # Get latest snapshot info
+    local latest_snapshot
+    if latest_snapshot=$(timeout "$RESTIC_TIMEOUT" restic -r "$RESTIC_REPOSITORY" snapshots --last 1 --json 2>/dev/null | jq -r '.[0].time // empty'); then
+        if [ -n "$latest_snapshot" ]; then
+            log "Latest snapshot: $latest_snapshot"
+        else
+            log "No snapshots found"
+        fi
+    else
+        log "Failed to get latest snapshot info"
+        return 1
+    fi
+
+    # Get repository stats
+    local repo_stats
+    if repo_stats=$(timeout "$RESTIC_TIMEOUT" restic -r "$RESTIC_REPOSITORY" stats --json 2>/dev/null | jq -r '.total_size // empty'); then
+        if [ -n "$repo_stats" ]; then
+            log "Repository size: $repo_stats bytes"
+        fi
+    else
+        log "Failed to get repository stats"
+        return 1
+    fi
+
+    return 0
+}
+
+# Send alert if health check fails
+send_alert() {
+    local alert_message="$1"
+
+    log "ALERT: $alert_message"
+
+    # Log to system journal
+    logger -t "nas-health-check" -p user.err "$alert_message"
+
+    # TODO: Add email notification or other alerting mechanism
+    # This could be extended to send email, Slack notifications, etc.
+}
+
+# Main health check function
+main() {
+    log "Starting NAS health check..."
+
+    local health_status=0
+
+    # Check Tailscale
+    if ! check_tailscale; then
+        send_alert "Tailscale is not running or not authenticated"
+        health_status=1
+    fi
+
+    # Check network connectivity
+    if ! check_network_connectivity; then
+        send_alert "Network connectivity to NAS failed"
+        health_status=1
+    fi
+
+    # Check SSH connectivity
+    if ! check_ssh_connectivity; then
+        send_alert "SSH connectivity to NAS failed"
+        health_status=1
+    fi
+
+    # Check NAS space
+    if ! check_nas_space; then
+        send_alert "Failed to check NAS storage space"
+        health_status=1
+    fi
+
+    # Check Restic repository
+    if ! check_restic_repository; then
+        send_alert "Restic repository health check failed"
+        health_status=1
+    fi
+
+    # Get backup statistics
+    if ! get_backup_stats; then
+        log "Warning: Failed to get backup statistics"
+    fi
+
+    if [ $health_status -eq 0 ]; then
+        log "NAS health check completed successfully"
+    else
+        log "NAS health check completed with errors"
+    fi
+
+    return $health_status
+}
+
+# Execute main function
+main "$@"

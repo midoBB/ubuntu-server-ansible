@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is an Ansible-based Ubuntu server automation repository focused on deploying and managing secure server infrastructure with containerized services. The current architecture centers around HashiCorp Vault for secret management and Podman for rootless container orchestration.
 
+## Scripting Guidelines
+
+- Always use #!/usr/bin/env bash as the shebang for scripts
+
 ## Common Commands
 
 ### Environment Setup
@@ -95,7 +99,7 @@ The repository contains **23 distinct roles** providing comprehensive server aut
   - **MinIO**: Object storage backups using `mc mirror` with compression
 - **Offsite Backups**: 
   - **NAS**: Restic backups over SSH/SFTP
-  - **Google Drive**: Restic backups via rclone integration
+  - **Backblaze B2**: Restic backups via rclone integration
 - **Scheduling**: Automated daily backups with systemd timers
 - **Retention**: Local (30 days), Offsite (7 daily + 12 monthly)
 - **Storage**: Local backups in `/opt/backups/`, encrypted offsite repositories
@@ -136,11 +140,11 @@ The backup system operates on a multi-tiered approach:
 - **02:00** - Vault raft snapshots (encrypted, stored in `/opt/backups/vault/`)
 - **03:00** - PostgreSQL dumps (compressed SQL, stored in `/opt/backups/postgres/`)  
 - **04:00** - MinIO data mirrors (compressed tar.gz, stored in `/opt/backups/minio/`)
-- **05:00** - Offsite backup sync (restic to NAS + Google Drive)
+- **05:00** - Offsite backup sync (restic to NAS + Backblaze B2)
 
 **Offsite Backup Strategy:**
 - **Primary**: NAS via SSH/SFTP using restic for encryption and deduplication
-- **Secondary**: Google Drive via rclone backend with restic encryption
+- **Secondary**: Backblaze B2 via rclone backend with restic encryption
 - **Retention**: 7 daily snapshots + 12 monthly snapshots per repository
 - **Security**: Repository-level encryption with restic password protection
 
@@ -183,13 +187,13 @@ nas_ssh_private_key: |
   your-ssh-private-key-content
   -----END OPENSSH PRIVATE KEY-----
 
-# rclone configuration for Google Drive
+# rclone configuration for Backblaze B2
 rclone_config: |
-  [gdrive]
-  type = drive
-  client_id = your-google-client-id
-  client_secret = your-google-client-secret
-  token = {"access_token":"...","token_type":"Bearer",...}
+  [bblaze]
+  type = b2
+  account = your-backblaze-account-id
+  key = your-backblaze-application-key
+  hard_delete = true
 ```
 
 ### Backup Management Commands
@@ -211,7 +215,7 @@ systemctl start offsite-backup.service
 
 # List restic snapshots
 restic -r sftp:backup@nas:/volume1/backups/server snapshots
-restic -r rclone:gdrive:backups/server snapshots
+restic -r rclone:bblaze:homeserver-backups snapshots
 
 # Restore from backup (example)
 restic -r sftp:backup@nas:/volume1/backups/server restore latest --target /tmp/restore

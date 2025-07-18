@@ -1,0 +1,11 @@
+[Unit]
+Description=Offsite Backup Timer
+Requires=offsite-backup.service
+
+[Timer]
+OnCalendar=*-*-* {{ backup_schedule.offsite }}:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

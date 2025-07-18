@@ -1,0 +1,17 @@
+---
+- name: reload systemd
+  become: true
+  systemd:
+    daemon_reload: true
+
+- name: restart backup services
+  become: true
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+    daemon_reload: true
+  loop:
+    - vault-backup.service
+    - postgres-backup.service
+    - minio-backup.service
+    - offsite-backup.service

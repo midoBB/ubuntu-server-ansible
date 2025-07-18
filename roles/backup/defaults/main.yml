@@ -1,0 +1,77 @@
+---
+# Backup system configuration
+backup_user: "backup"
+backup_group: "backup"
+backup_create_user: true  # Use existing deploy user
+
+# Directory structure
+backup_root_dir: "/opt/backups"
+backup_staging_dir: "{{ backup_root_dir }}/staging"
+backup_config_dir: "/home/{{ backup_user }}/.config/backup"
+backup_log_dir: "/var/log/backup"
+backup_home_dir: "/home/{{ backup_user }}"
+
+# User and group configuration
+backup_user_groups:
+  - "{{ backup_user }}"
+  - "{{ deploy_user }}"
+  - "{{ vault_user }}"
+
+# Package versions (use latest available)
+restic_version: "latest"
+rclone_version: "latest"
+
+# Backup timing (systemd format)
+backup_schedule:
+  vault: "01:00"
+  postgres: "02:00"
+  minio: "03:00"
+  offsite: "05:00"
+  prune: "Sun 04:00"
+
+# Restic configuration
+restic_repository_nas: "sftp:{{ nas_ssh_user }}@{{ nas_ssh_host }}:{{ nas_backup_path }}"
+restic_repository_backblaze: "rclone:bblaze:{{ backblaze_backup_path }}"
+
+# Logging configuration
+backup_log_level: "info"
+backup_log_max_size: "10M"
+backup_log_max_files: 7
+
+# Retention policy
+backup_retention:
+  daily: 7
+  monthly: 12
+  yearly: 2
+
+# Backup validation
+backup_verify_enabled: true
+backup_verify_timeout: 300  # 5 minutes
+
+# Resource limits
+backup_bandwidth_limit: "10M"  # 10MB/s
+backup_cpu_limit: "50%"
+backup_memory_limit: "1G"
+
+# Vault configuration
+vault_addr: "https://127.0.0.1:8200"
+vault_skip_verify: true
+
+# Backup destination paths
+nas_backup_path: "/backups/homeserver"
+backblaze_backup_path: "homeserver-backups"
+
+# NAS configuration
+nas_ssh_host: "{{ vault_nas_ssh_host | default('nas.example.com') }}"
+nas_ssh_user: "{{ vault_nas_ssh_user | default('backup') }}"
+nas_ssh_port: "{{ vault_nas_ssh_port | default('22') }}"
+
+# Bandwidth limiting
+backup_bandwidth_limit_kb: "{{ (backup_bandwidth_limit | regex_replace('M', '') | int) * 1024 }}"
+
+# Backup credentials (to be stored in Vault)
+# These should be overridden in vars/secrets.yml
+restic_password: "{{ vault_restic_password | default('changeme') }}"
+vault_backup_password: "{{ vault_backup_user_password | default('changeme') }}"
+nas_ssh_private_key: "{{ vault_nas_ssh_private_key | default('') }}"
+rclone_config: "{{ vault_rclone_config | default('') }}"

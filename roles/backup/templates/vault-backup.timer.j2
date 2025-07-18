@@ -1,0 +1,11 @@
+[Unit]
+Description=Vault Backup Timer
+Requires=vault-backup.service
+
+[Timer]
+OnCalendar=*-*-* {{ backup_schedule.vault }}:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

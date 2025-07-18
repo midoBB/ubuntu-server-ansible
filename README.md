@@ -88,6 +88,78 @@ Edit `vars/main.yml` to customize:
 - SSH keys are required for deploy user
 - SSH root login and password auth are disabled by default
 
+## Backup System
+
+The backup role provides comprehensive automated backup functionality with local and offsite storage:
+
+### Features
+- **Multi-service backups**: Vault, PostgreSQL, and MinIO
+- **Dual offsite destinations**: NAS (SSH/SFTP) and Backblaze B2 (rclone)
+- **Encrypted storage**: Restic repositories with password protection
+- **Automated scheduling**: Daily backups with systemd timers
+- **Integrity validation**: Health checks and restore testing
+
+### Backup Schedule
+- **01:00** - Vault raft snapshots
+- **02:00** - PostgreSQL database dumps
+- **03:00** - MinIO object storage mirror
+- **05:00** - Offsite backup synchronization
+- **Sun 04:00** - Repository pruning
+
+### Configuration
+Add these encrypted variables to `vars/secrets.yml`:
+
+```yaml
+# Restic repository encryption
+restic_password: "your-strong-restic-password"
+
+# NAS backup configuration
+nas_ssh_host: "nas.example.com"
+nas_ssh_user: "backup"
+nas_ssh_port: 22
+nas_backup_path: "/volume1/backups/server"
+nas_ssh_private_key: |
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  your-ssh-private-key-content
+  -----END OPENSSH PRIVATE KEY-----
+
+# Backblaze B2 configuration
+rclone_config: |
+  [bblaze]
+  type = b2
+  account = your-backblaze-account-id
+  key = your-backblaze-application-key
+  hard_delete = true
+```
+
+### Management Commands
+```bash
+# Check backup status
+systemctl status vault-backup.timer postgres-backup.timer minio-backup.timer
+
+# View backup logs
+journalctl -u vault-backup.service -f
+journalctl -u postgres-backup.service -f
+journalctl -u minio-backup.service -f
+
+# Manual backup execution
+systemctl start vault-backup.service
+systemctl start postgres-backup.service
+systemctl start minio-backup.service
+
+# List restic snapshots
+restic -r sftp:backup@nas:/volume1/backups/server snapshots
+restic -r rclone:bblaze:homeserver-backups snapshots
+
+# Restore from backup
+restic -r sftp:backup@nas:/volume1/backups/server restore latest --target /tmp/restore
+```
+
+### Retention Policy
+- **Local**: 7 days
+- **Offsite**: 7 daily + 12 monthly + 2 yearly snapshots
+- **Storage**: Local backups in `/opt/backups/`, encrypted offsite repositories
+
 ## Troubleshooting
 
 1. Check SSH connectivity and environment variables
