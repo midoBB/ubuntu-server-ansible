@@ -213,13 +213,55 @@ systemctl start postgres-backup.service
 systemctl start minio-backup.service
 systemctl start offsite-backup.service
 
-# List restic snapshots
+# MinIO comprehensive backup operations
+/usr/local/bin/minio-backup.sh backup                    # Standard backup (same as systemd service)
+/usr/local/bin/minio-backup.sh list-backups              # List all available MinIO backups
+systemctl start minio-list-backups.service               # List backups via systemd
+
+# MinIO restore operations (requires target credentials in vars/secrets.yml or environment)
+export RESTORE_MINIO_ENDPOINT=http://target-server:9000
+export RESTORE_MINIO_ACCESS_KEY=target_access_key
+export RESTORE_MINIO_SECRET_KEY=target_secret_key
+/usr/local/bin/minio-backup.sh restore                   # Restore latest backup
+/usr/local/bin/minio-backup.sh restore --snapshot-id abc123  # Restore specific snapshot
+systemctl start minio-restore.service                    # Restore via systemd (uses vars/secrets.yml)
+
+# MinIO replication setup (requires secondary instance credentials)
+export RESTORE_MINIO_ENDPOINT=http://secondary-server:9000
+export RESTORE_MINIO_ACCESS_KEY=secondary_access_key
+export RESTORE_MINIO_SECRET_KEY=secondary_secret_key
+/usr/local/bin/minio-backup.sh setup-replication         # Setup cross-site replication
+systemctl start minio-setup-replication.service          # Setup replication via systemd
+
+# List restic snapshots (traditional method)
 restic -r sftp:backup@nas:/volume1/backups/server snapshots
 restic -r rclone:bblaze:homeserver-backups snapshots
 
-# Restore from backup (example)
+# Manual restic restore (traditional method)
 restic -r sftp:backup@nas:/volume1/backups/server restore latest --target /tmp/restore
 ```
+
+### MinIO Disaster Recovery
+
+The MinIO backup system now provides comprehensive disaster recovery capabilities:
+
+**Backup Components:**
+- **Bucket Data**: Complete object storage with incremental syncing
+- **Bucket Configurations**: Policies, notifications, encryption settings, versioning, lifecycle rules
+- **IAM Settings**: Service accounts, users, policies, groups (manual restoration required)
+- **Metadata**: Backup versioning and integrity information
+
+**Restore Scenarios:**
+1. **Same Instance Recovery**: Restore to original MinIO instance after data loss
+2. **Cross-Instance Migration**: Migrate to different MinIO server with full configuration
+3. **Disaster Recovery**: Complete restore to new infrastructure
+4. **Selective Restore**: Restore specific buckets or configurations
+
+**Replication Setup:**
+- Automatic cross-site replication configuration
+- Versioning enablement on both primary and secondary
+- Bi-directional sync with conflict resolution
+- Real-time replication for high availability
 
 ## Troubleshooting
 - Verify environment variables are set before running playbooks

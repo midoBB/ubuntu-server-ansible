@@ -75,3 +75,32 @@ restic_password: "{{ vault_restic_password | default('changeme') }}"
 vault_backup_password: "{{ vault_backup_user_password | default('changeme') }}"
 nas_ssh_private_key: "{{ vault_nas_ssh_private_key | default('') }}"
 rclone_config: "{{ vault_rclone_config | default('') }}"
+
+# MinIO restore and replication configuration
+restore_minio_endpoint: "{{ vault_restore_minio_endpoint | default('') }}"
+restore_minio_access_key: "{{ vault_restore_minio_access_key | default('') }}"
+restore_minio_secret_key: "{{ vault_restore_minio_secret_key | default('') }}"
+
+# Secondary MinIO instance for replication
+replication_minio_endpoint: "{{ vault_replication_minio_endpoint | default('') }}"
+replication_minio_access_key: "{{ vault_replication_minio_access_key | default('') }}"
+replication_minio_secret_key: "{{ vault_replication_minio_secret_key | default('') }}"
+
+# Backup operation modes
+backup_operations_enabled:
+  backup: true
+  restore: false  # Only enable manually when needed
+  replication: false  # Only enable manually when needed
+  list_backups: true
+  verify_backup: true
+
+# Backup metadata settings
+backup_metadata_version: "2.0"
+backup_include_iam: true
+backup_include_policies: true
+backup_include_configurations: true
+
+# Restore settings
+restore_verify_integrity: true
+restore_cleanup_on_success: true
+restore_preserve_permissions: true

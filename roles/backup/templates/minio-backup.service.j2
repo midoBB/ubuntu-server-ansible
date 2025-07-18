@@ -10,7 +10,7 @@ Group={{ backup_group }}
 Environment=RESTIC_PASSWORD_FILE={{ backup_config_dir }}/restic-password
 Environment=RESTIC_REPOSITORY={{ restic_repository_nas }}
 Environment=MC_HOST_local=https://minio:minioadmin@127.0.0.1:9000
-ExecStart=/usr/local/bin/minio-backup.sh
+ExecStart=/usr/local/bin/minio-backup.sh backup
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=minio-backup
